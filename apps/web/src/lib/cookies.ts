@@ -21,7 +21,7 @@ export async function setAuthCookies(tokens: AuthTokens): Promise<void> {
     httpOnly: true,
     secure: IS_HTTPS,
     sameSite: "lax",
-    path: "/api/auth",
+    path: "/",
     maxAge: 60 * 60 * 24 * 7, // 7 days
   });
 }

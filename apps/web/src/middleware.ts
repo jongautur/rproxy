@@ -1,10 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyAccessToken } from "@/lib/jwt";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/cookies";
+import { verifyAccessToken, verifyRefreshToken, signAccessToken } from "@/lib/jwt";
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/cookies";
+import type { JwtPayload } from "@/types/auth";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/refresh", "/api/auth/mfa"];
 const CHANGE_PASSWORD_PATH = "/change-password";
 const MFA_PATH = "/mfa";
+
+const IS_HTTPS = process.env.NEXTAUTH_URL?.startsWith("https://") ?? false;
+
+function setAccessCookie(res: NextResponse, token: string): void {
+  res.cookies.set(ACCESS_TOKEN_COOKIE, token, {
+    httpOnly: true,
+    secure: IS_HTTPS,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 15,
+  });
+}
+
+async function tryRefresh(req: NextRequest): Promise<{ payload: JwtPayload; newToken: string } | null> {
+  const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+  if (!refreshToken) return null;
+  try {
+    const payload = await verifyRefreshToken(refreshToken);
+    const newToken = await signAccessToken({
+      sub: payload.sub,
+      username: payload.username,
+      role: payload.role,
+      mustChangePassword: payload.mustChangePassword,
+    });
+    return { payload: { ...payload, type: "access" }, newToken };
+  } catch {
+    return null;
+  }
+}
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -13,52 +43,75 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  const rawToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+
+  // ── API routes ───────────────────────────────────────────────────────────────
   if (pathname.startsWith("/api/")) {
-    const token = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
-    if (!token) {
+    if (!rawToken) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
-
     try {
-      const payload = await verifyAccessToken(token);
-      // MFA-pending tokens may only access /api/auth/mfa (already in PUBLIC_PATHS)
+      const payload = await verifyAccessToken(rawToken);
       if (payload.mfaPending) {
         return NextResponse.json({ success: false, error: "MFA required" }, { status: 401 });
       }
       return NextResponse.next();
     } catch {
-      return NextResponse.json({ success: false, error: "Token expired" }, { status: 401 });
+      // Access token expired — try refresh
+      const refreshed = await tryRefresh(req);
+      if (!refreshed) {
+        return NextResponse.json({ success: false, error: "Token expired" }, { status: 401 });
+      }
+      if (refreshed.payload.mfaPending) {
+        return NextResponse.json({ success: false, error: "MFA required" }, { status: 401 });
+      }
+      const res = NextResponse.next();
+      setAccessCookie(res, refreshed.newToken);
+      return res;
     }
   }
 
-  // Page routes — check token then enforce must-change-password
-  const token = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
-  if (!token) {
+  // ── Page routes ──────────────────────────────────────────────────────────────
+  let payload: JwtPayload | null = null;
+  let freshToken: string | null = null;
+
+  if (rawToken) {
+    try {
+      payload = await verifyAccessToken(rawToken);
+    } catch {
+      // Expired — try refresh before giving up
+      const refreshed = await tryRefresh(req);
+      if (refreshed) {
+        payload = refreshed.payload;
+        freshToken = refreshed.newToken;
+      }
+    }
+  }
+
+  if (!payload) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  try {
-    const payload = await verifyAccessToken(token);
-
-    // MFA pending — only allow the /mfa page
-    if (payload.mfaPending && !pathname.startsWith(MFA_PATH)) {
-      return NextResponse.redirect(new URL(MFA_PATH, req.url));
-    }
-    if (!payload.mfaPending && pathname.startsWith(MFA_PATH)) {
-      return NextResponse.redirect(new URL("/dashboard", req.url));
-    }
-
-    // Force first-run password change before accessing any other page
-    if (payload.mustChangePassword && !pathname.startsWith(CHANGE_PASSWORD_PATH)) {
-      return NextResponse.redirect(new URL(CHANGE_PASSWORD_PATH, req.url));
-    }
-
-    return NextResponse.next();
-  } catch {
-    const response = NextResponse.redirect(new URL("/login", req.url));
-    response.cookies.delete(ACCESS_TOKEN_COOKIE);
-    return response;
+  // MFA pending — only allow /mfa
+  if (payload.mfaPending && !pathname.startsWith(MFA_PATH)) {
+    const res = NextResponse.redirect(new URL(MFA_PATH, req.url));
+    if (freshToken) setAccessCookie(res, freshToken);
+    return res;
   }
+  if (!payload.mfaPending && pathname.startsWith(MFA_PATH)) {
+    return NextResponse.redirect(new URL("/dashboard", req.url));
+  }
+
+  // Force first-run password change
+  if (payload.mustChangePassword && !pathname.startsWith(CHANGE_PASSWORD_PATH)) {
+    const res = NextResponse.redirect(new URL(CHANGE_PASSWORD_PATH, req.url));
+    if (freshToken) setAccessCookie(res, freshToken);
+    return res;
+  }
+
+  const res = NextResponse.next();
+  if (freshToken) setAccessCookie(res, freshToken);
+  return res;
 }
 
 export const config = {
