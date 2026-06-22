@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import {
   Globe, Edit2, Trash2, ChevronLeft, ChevronRight,
   CheckCircle2, XCircle, AlertCircle, Lock, Wifi, Loader2, Heart,
+  ChevronDown, ChevronRight as ChevronRightIcon, Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,11 @@ interface Props {
   onPageChange: (page: number) => void;
 }
 
+function rootDomain(domain: string): string {
+  const parts = domain.split(".");
+  return parts.length > 2 ? parts.slice(-2).join(".") : domain;
+}
+
 function StatusBadge({ status, enabled }: { status: string; enabled: boolean }) {
   if (!enabled) return <Badge variant="secondary">Disabled</Badge>;
   if (status === "ACTIVE") return <Badge variant="success"><CheckCircle2 className="w-3 h-3 mr-1" />Active</Badge>;
@@ -42,16 +48,12 @@ function StatusBadge({ status, enabled }: { status: string; enabled: boolean }) 
   return <Badge variant="secondary">{status}</Badge>;
 }
 
-function EmptyState({ searching }: { searching: boolean }) {
+function EmptyState() {
   return (
     <div className="text-center py-16">
       <Globe className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-      <p className="text-muted-foreground font-medium">
-        {searching ? "No proxies match your search" : "No proxy hosts yet"}
-      </p>
-      <p className="text-muted-foreground text-sm mt-1">
-        {!searching && "Click \"Add Proxy Host\" to create your first reverse proxy"}
-      </p>
+      <p className="text-muted-foreground font-medium">No proxy hosts yet</p>
+      <p className="text-muted-foreground text-sm mt-1">Click "Add Proxy Host" to create your first reverse proxy</p>
     </div>
   );
 }
@@ -65,8 +67,9 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
   const [deleteTarget, setDeleteTarget] = useState<ProxyHostWithCert | null>(null);
   const [probingId, setProbingId] = useState<string | null>(null);
   const [healthMap, setHealthMap] = useState<HealthMap>({});
+  const [grouped, setGrouped] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  // Probe all proxies on mount and after refresh
   useEffect(() => {
     const ids = data?.items.map((p) => p.id) ?? [];
     if (ids.length === 0) return;
@@ -78,11 +81,7 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
           .catch(() => ({ id, result: null }))
       )
     ).then((results) => {
-      setHealthMap(
-        Object.fromEntries(
-          results.filter((r) => r.result).map((r) => [r.id, r.result!])
-        )
-      );
+      setHealthMap(Object.fromEntries(results.filter((r) => r.result).map((r) => [r.id, r.result!])));
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.items.map((p) => p.id).join(",")]);
@@ -102,9 +101,7 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
       }
     } catch {
       toast({ variant: "destructive", title: "Health check failed" });
-    } finally {
-      setProbingId(null);
-    }
+    } finally { setProbingId(null); }
   }
 
   async function handleToggle(proxy: ProxyHostWithCert) {
@@ -124,9 +121,7 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
       }
     } catch {
       toast({ variant: "destructive", title: "Toggle failed" });
-    } finally {
-      setTogglingId(null);
-    }
+    } finally { setTogglingId(null); }
   }
 
   async function handleDelete(proxy: ProxyHostWithCert) {
@@ -142,10 +137,15 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
       }
     } catch {
       toast({ variant: "destructive", title: "Delete failed" });
-    } finally {
-      setDeletingId(null);
-      setDeleteTarget(null);
-    }
+    } finally { setDeletingId(null); setDeleteTarget(null); }
+  }
+
+  function toggleGroup(root: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(root)) next.delete(root); else next.add(root);
+      return next;
+    });
   }
 
   if (loading) {
@@ -160,12 +160,100 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
 
   const items = data?.items ?? [];
 
+  // Build groups when grouping is on
+  const groups: Map<string, ProxyHostWithCert[]> = new Map();
+  if (grouped) {
+    for (const proxy of items) {
+      const root = rootDomain(proxy.domain);
+      if (!groups.has(root)) groups.set(root, []);
+      groups.get(root)!.push(proxy);
+    }
+  }
+
+  function ProxyRow({ proxy, indent = false }: { proxy: ProxyHostWithCert; indent?: boolean }) {
+    return (
+      <tr
+        className={cn(
+          "border-b border-border/50 hover:bg-accent/30 transition-colors",
+          !proxy.enabled && "opacity-60"
+        )}
+      >
+        <td className="px-6 py-4">
+          <div className={cn("flex items-center gap-2", indent && "pl-5")}>
+            <Globe className="w-4 h-4 text-muted-foreground shrink-0" />
+            <div>
+              <p className="font-medium text-foreground">{proxy.domain}</p>
+              <p className="text-xs text-muted-foreground">:{proxy.listenPort}</p>
+            </div>
+          </div>
+        </td>
+        <td className="px-6 py-4 text-muted-foreground">{proxy.forwardHost}</td>
+        <td className="px-4 py-4 text-muted-foreground">{proxy.forwardPort}</td>
+        <td className="px-4 py-4">
+          <div className="flex items-center gap-1.5">
+            {proxy.sslEnabled && <span title="SSL"><Lock className="w-3.5 h-3.5 text-success" /></span>}
+            {proxy.websocket && <span title="WebSocket"><Wifi className="w-3.5 h-3.5 text-primary" /></span>}
+            {proxy.http2 && <Badge variant="info" className="text-[10px] px-1.5 py-0">H2</Badge>}
+            {proxy.forceHttps && <Badge variant="info" className="text-[10px] px-1.5 py-0">HTTPS</Badge>}
+          </div>
+        </td>
+        <td className="px-4 py-4"><StatusBadge status={proxy.status} enabled={proxy.enabled} /></td>
+        <td className="px-4 py-4">
+          {healthMap[proxy.id] ? (
+            <div className="flex items-center gap-1.5">
+              <span className={cn("w-2 h-2 rounded-full shrink-0", healthMap[proxy.id]!.status === "UP" ? "bg-green-500" : "bg-red-500")} />
+              <span className="text-xs text-muted-foreground">
+                {healthMap[proxy.id]!.status === "UP"
+                  ? (healthMap[proxy.id]!.responseTime ? `${healthMap[proxy.id]!.responseTime}ms` : "UP")
+                  : "DOWN"}
+              </span>
+            </div>
+          ) : (
+            <span className="w-2 h-2 rounded-full bg-muted-foreground/30 block" />
+          )}
+        </td>
+        <td className="px-4 py-4">
+          <Switch checked={proxy.enabled} onCheckedChange={() => handleToggle(proxy)} disabled={togglingId === proxy.id} />
+        </td>
+        <td className="px-6 py-4">
+          <div className="flex items-center justify-end gap-1">
+            <Button variant="ghost" size="icon-sm" onClick={() => handleProbe(proxy)} disabled={probingId === proxy.id} title="Check health">
+              {probingId === proxy.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Heart className="w-4 h-4" />}
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => onEdit(proxy)} title="Edit">
+              <Edit2 className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => setDeleteTarget(proxy)} disabled={deletingId === proxy.id} className="hover:text-destructive hover:bg-destructive/10" title="Delete">
+              {deletingId === proxy.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            </Button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <>
       <Card>
         <CardContent className="p-0">
+          {/* Group toggle */}
+          <div className="flex items-center justify-end px-4 py-2 border-b border-border/50">
+            <Button
+              variant={grouped ? "secondary" : "ghost"}
+              size="sm"
+              className="gap-2 text-xs"
+              onClick={() => {
+                setGrouped((v) => !v);
+                setExpandedGroups(new Set());
+              }}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Group by domain
+            </Button>
+          </div>
+
           {items.length === 0 ? (
-            <EmptyState searching={false} />
+            <EmptyState />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -182,159 +270,67 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((proxy) => (
-                    <tr
-                      key={proxy.id}
-                      className={cn(
-                        "border-b border-border/50 hover:bg-accent/30 transition-colors",
-                        !proxy.enabled && "opacity-60"
-                      )}
-                    >
-                      {/* Domain */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <Globe className="w-4 h-4 text-muted-foreground shrink-0" />
-                          <div>
-                            <p className="font-medium text-foreground">{proxy.domain}</p>
-                            <p className="text-xs text-muted-foreground">:{proxy.listenPort}</p>
-                          </div>
-                        </div>
-                      </td>
+                  {grouped ? (
+                    Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([root, members]) => {
+                      const isExpanded = expandedGroups.has(root);
+                      const isSingle = members.length === 1 && members[0]!.domain === root;
 
-                      {/* Forward */}
-                      <td className="px-6 py-4 text-muted-foreground">
-                        {proxy.forwardHost}
-                      </td>
+                      // Single host that IS the root — just show as a normal row
+                      if (isSingle) return <ProxyRow key={root} proxy={members[0]!} />;
 
-                      {/* Port */}
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {proxy.forwardPort}
-                      </td>
-
-                      {/* Features */}
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-1.5">
-                          {proxy.sslEnabled && (
-                            <span title="SSL enabled">
-                              <Lock className="w-3.5 h-3.5 text-success" />
-                            </span>
-                          )}
-                          {proxy.websocket && (
-                            <span title="WebSocket">
-                              <Wifi className="w-3.5 h-3.5 text-primary" />
-                            </span>
-                          )}
-                          {proxy.http2 && (
-                            <Badge variant="info" className="text-[10px] px-1.5 py-0">H2</Badge>
-                          )}
-                          {proxy.forceHttps && (
-                            <Badge variant="info" className="text-[10px] px-1.5 py-0">HTTPS</Badge>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-4 py-4">
-                        <StatusBadge status={proxy.status} enabled={proxy.enabled} />
-                      </td>
-
-                      {/* Health */}
-                      <td className="px-4 py-4">
-                        {healthMap[proxy.id] ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${
-                              healthMap[proxy.id]!.status === "UP" ? "bg-green-500" : "bg-red-500"
-                            }`} />
-                            <span className="text-xs text-muted-foreground">
-                              {healthMap[proxy.id]!.status === "UP"
-                                ? healthMap[proxy.id]!.responseTime ? `${healthMap[proxy.id]!.responseTime}ms` : "UP"
-                                : "DOWN"
-                              }
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-muted-foreground/30 block" />
-                        )}
-                      </td>
-
-                      {/* Toggle */}
-                      <td className="px-4 py-4">
-                        <Switch
-                          checked={proxy.enabled}
-                          onCheckedChange={() => handleToggle(proxy)}
-                          disabled={togglingId === proxy.id}
-                        />
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => handleProbe(proxy)}
-                            disabled={probingId === proxy.id}
-                            title="Check health"
+                      return (
+                        <>
+                          {/* Group header row */}
+                          <tr
+                            key={`group-${root}`}
+                            className="border-b border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer select-none"
+                            onClick={() => toggleGroup(root)}
                           >
-                            {probingId === proxy.id
-                              ? <Loader2 className="w-4 h-4 animate-spin" />
-                              : <Heart className="w-4 h-4" />
-                            }
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => onEdit(proxy)}
-                            title="Edit"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => setDeleteTarget(proxy)}
-                            disabled={deletingId === proxy.id}
-                            className="hover:text-destructive hover:bg-destructive/10"
-                            title="Delete"
-                          >
-                            {deletingId === proxy.id
-                              ? <Loader2 className="w-4 h-4 animate-spin" />
-                              : <Trash2 className="w-4 h-4" />
-                            }
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            <td className="px-6 py-3" colSpan={8}>
+                              <div className="flex items-center gap-2">
+                                {isExpanded
+                                  ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                  : <ChevronRightIcon className="w-4 h-4 text-muted-foreground" />
+                                }
+                                <Globe className="w-4 h-4 text-primary" />
+                                <span className="font-semibold text-foreground">{root}</span>
+                                <Badge variant="secondary" className="text-xs ml-1">
+                                  {members.length} {members.length === 1 ? "host" : "hosts"}
+                                </Badge>
+                                {members.some((m) => m.enabled) && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 ml-1" title="Some hosts active" />
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          {/* Child rows when expanded */}
+                          {isExpanded && members
+                            .sort((a, b) => a.domain.localeCompare(b.domain))
+                            .map((proxy) => <ProxyRow key={proxy.id} proxy={proxy} indent />)
+                          }
+                        </>
+                      );
+                    })
+                  ) : (
+                    items.map((proxy) => <ProxyRow key={proxy.id} proxy={proxy} />)
+                  )}
                 </tbody>
               </table>
             </div>
           )}
 
-          {/* Pagination */}
-          {data && data.totalPages > 1 && (
+          {/* Pagination — hidden when grouped */}
+          {!grouped && data && data.totalPages > 1 && (
             <div className="flex items-center justify-between px-6 py-4 border-t border-border">
               <p className="text-sm text-muted-foreground">
                 Showing {(page - 1) * data.perPage + 1}–{Math.min(page * data.perPage, data.total)} of {data.total}
               </p>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  disabled={page <= 1}
-                  onClick={() => onPageChange(page - 1)}
-                >
+                <Button variant="outline" size="icon-sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                <span className="text-sm text-muted-foreground">
-                  {page} / {data.totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  disabled={page >= data.totalPages}
-                  onClick={() => onPageChange(page + 1)}
-                >
+                <span className="text-sm text-muted-foreground">{page} / {data.totalPages}</span>
+                <Button variant="outline" size="icon-sm" disabled={page >= data.totalPages} onClick={() => onPageChange(page + 1)}>
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
@@ -343,7 +339,6 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
         </CardContent>
       </Card>
 
-      {/* Delete confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
