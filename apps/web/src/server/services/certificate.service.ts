@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { fireNotification } from "@/server/services/notification.service";
 import { encryptJson } from "@/lib/encrypt";
 import {
   issueCertificate, renewCertificate, revokeCertificate,
@@ -174,6 +175,29 @@ export async function checkAndRenewExpiring(): Promise<void> {
         where: { id: cert.id },
         data: { renewError: String(e).slice(0, 1000) },
       });
+      void fireNotification({
+        type: "cert_renewal_failed",
+        title: `Certificate renewal failed: ${cert.domain}`,
+        body: `Automatic renewal of the certificate for ${cert.domain} failed.\nError: ${String(e)}`,
+      });
     }
+  }
+
+  // Alert on certs expiring within 14 days that are not auto-renewing
+  const soonExpiring = await prisma.certificate.findMany({
+    where: {
+      status: "ACTIVE",
+      expiresAt: { lte: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) },
+    },
+  });
+  for (const cert of soonExpiring) {
+    const daysLeft = cert.expiresAt
+      ? Math.ceil((cert.expiresAt.getTime() - Date.now()) / 86_400_000)
+      : 0;
+    void fireNotification({
+      type: "cert_expiring",
+      title: `Certificate expiring soon: ${cert.domain}`,
+      body: `The certificate for ${cert.domain} expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}.`,
+    });
   }
 }

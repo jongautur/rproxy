@@ -5,6 +5,7 @@ import { DashboardStats } from "./components/dashboard-stats";
 import { NginxStatusCard } from "./components/nginx-status-card";
 import { RecentActivity } from "./components/recent-activity";
 import { ExpiringCerts } from "./components/expiring-certs";
+import { TrafficStatsCard } from "./components/traffic-stats-card";
 
 export const dynamic = "force-dynamic";
 
@@ -84,8 +85,9 @@ export default async function DashboardPage() {
           <NginxStatusCard />
           <RecentActivity logs={data.auditLogs} />
         </div>
-        <div>
+        <div className="space-y-6">
           <ExpiringCerts certs={data.expiringCerts} />
+          <TrafficStatsCard />
         </div>
       </div>
     </div>

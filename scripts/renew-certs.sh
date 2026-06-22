@@ -39,3 +39,9 @@ curl -s -o /dev/null -w "[cleanup-logs] HTTP %{http_code}\n" \
   -X POST "http://localhost:81/api/cron/cleanup-logs" \
   -H "Authorization: Bearer $CRON_SECRET" \
   -H "Content-Type: application/json"
+
+echo "[parse-logs] $(date '+%Y-%m-%d %H:%M:%S') — parsing traffic stats"
+curl -s -o /dev/null -w "[parse-logs] HTTP %{http_code}\n" \
+  -X POST "http://localhost:81/api/cron/parse-logs" \
+  -H "Authorization: Bearer $CRON_SECRET" \
+  -H "Content-Type: application/json"

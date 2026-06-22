@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Settings, Users, Key, Download, Database, HardDrive,
-  Plus, Trash2, Loader2, CheckCircle2, ShieldCheck, ShieldOff, User,
+  Plus, Trash2, Loader2, CheckCircle2, ShieldCheck, ShieldOff, User, Bell, Globe, Webhook,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { NotificationsTab } from "./notifications-tab";
 
 interface AppUser {
   id: string;
@@ -301,6 +302,10 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
             <Database className="w-4 h-4" />
             Data
           </TabsTrigger>
+          <TabsTrigger value="notifications" className="gap-2">
+            <Bell className="w-4 h-4" />
+            Notifications
+          </TabsTrigger>
           {!loading && data && (
             <TabsTrigger value="users" className="gap-2">
               <Users className="w-4 h-4" />
@@ -499,7 +504,11 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
           </Card>
         </TabsContent>
 
-        {/* Users tab (admin only) */}
+        <TabsContent value="notifications">
+          <NotificationsTab />
+        </TabsContent>
+
+        {/* Users tab — admin only */}
         {!loading && data && (
           <TabsContent value="users">
             <Card>

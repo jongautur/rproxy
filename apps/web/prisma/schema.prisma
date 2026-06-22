@@ -68,7 +68,8 @@ model ProxyHost {
   certificate   Certificate? @relation(fields: [certificateId], references: [id])
   certificateId String?      @map("certificate_id")
 
-  healthChecks HealthCheck[]
+  healthChecks  HealthCheck[]
+  trafficStats  TrafficStat[]
 
   accessList   AccessList? @relation(fields: [accessListId], references: [id], onDelete: SetNull)
   accessListId String?     @map("access_list_id")
@@ -204,6 +205,38 @@ model AuditLog {
   @@index([createdAt(sort: Desc)])
   @@index([userId])
   @@map("audit_logs")
+}
+
+
+// ── Traffic Stats ─────────────────────────────────────────────────────────────
+
+model TrafficStat {
+  id          String    @id @default(cuid())
+  proxyHostId String    @map("proxy_host_id")
+  hour        DateTime  // truncated to the hour (UTC)
+  requests    Int       @default(0)
+  bytes       BigInt    @default(0)
+  errors      Int       @default(0)
+
+  proxyHost ProxyHost @relation(fields: [proxyHostId], references: [id], onDelete: Cascade)
+
+  @@unique([proxyHostId, hour])
+  @@index([proxyHostId, hour(sort: Desc)])
+  @@map("traffic_stats")
+}
+
+// ── Notification Channels ─────────────────────────────────────────────────────
+
+model NotificationChannel {
+  id        String   @id @default(cuid())
+  type      String   // "email" | "webhook"
+  label     String   @default("")
+  enabled   Boolean  @default(true)
+  config    String   // AES-256-GCM encrypted JSON
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_channels")
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────

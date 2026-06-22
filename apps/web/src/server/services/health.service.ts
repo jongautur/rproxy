@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { fireNotification } from "@/server/services/notification.service";
 import type { ProxyHost } from "@prisma/client";
 import https from "https";
 import net from "net";
@@ -73,6 +74,13 @@ export async function probeProxy(proxy: ProxyHost): Promise<ProbeResult> {
 }
 
 export async function recordHealthCheck(proxyId: string, result: ProbeResult): Promise<void> {
+  // Check previous status for transition detection
+  const previous = await prisma.healthCheck.findFirst({
+    where: { proxyHostId: proxyId },
+    orderBy: { checkedAt: "desc" },
+    select: { status: true },
+  });
+
   await prisma.healthCheck.create({
     data: {
       proxyHostId: proxyId,
@@ -82,6 +90,25 @@ export async function recordHealthCheck(proxyId: string, result: ProbeResult): P
       error: result.error ?? null,
     },
   });
+
+  // Fire notification on status transition
+  if (previous && previous.status !== result.status) {
+    const proxy = await prisma.proxyHost.findUnique({ where: { id: proxyId }, select: { domain: true } });
+    const domain = proxy?.domain ?? proxyId;
+    if (result.status === "DOWN") {
+      void fireNotification({
+        type: "host_down",
+        title: `${domain} is DOWN`,
+        body: `Proxy host ${domain} is no longer reachable.${result.error ? "\nError: " + result.error : ""}`,
+      });
+    } else if (result.status === "UP") {
+      void fireNotification({
+        type: "host_up",
+        title: `${domain} recovered`,
+        body: `Proxy host ${domain} is back online.${result.responseTime ? " Response time: " + result.responseTime + "ms" : ""}`,
+      });
+    }
+  }
 
   const old = await prisma.healthCheck.findMany({
     where: { proxyHostId: proxyId },
