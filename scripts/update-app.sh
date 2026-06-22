@@ -39,4 +39,14 @@ if command -v pm2 &>/dev/null && pm2 describe rproxy &>/dev/null 2>&1; then
   pm2 save
 fi
 
-echo "Update complete."
+for _ in {1..60}; do
+  if curl -fsS -o /dev/null http://127.0.0.1:81; then
+    echo "rproxy is responding on port 81."
+    echo "Update complete."
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "Update finished, but rproxy did not respond on port 81 within 60 seconds." >&2
+exit 1
