@@ -1,6 +1,6 @@
 # rproxy
 
-A self-hosted, Docker-free reverse proxy manager for Linux — built on Nginx, Let's Encrypt, and a Next.js management UI.
+A self-hosted, Docker-free reverse proxy manager for Linux — built on nginx, Let's Encrypt, and a Next.js management UI.
 
 Think Nginx Proxy Manager, but without the Docker dependency.
 
@@ -36,8 +36,8 @@ Think Nginx Proxy Manager, but without the Docker dependency.
 ## Requirements
 
 - Ubuntu 22.04 / Debian 12 (or similar)
-- A user with `sudo` access
-- Internet access (for Let's Encrypt, NodeSource, acme.sh install)
+- A non-root user with `sudo` access
+- Internet access (for Let's Encrypt, NodeSource, acme.sh)
 
 ---
 
@@ -46,29 +46,58 @@ Think Nginx Proxy Manager, but without the Docker dependency.
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/your-org/rproxy.git /opt/rproxy
+sudo apt-get install -y git   # if git isn't installed yet
+git clone https://github.com/jongautur/rproxy.git /opt/rproxy
 ```
 
-### 2. Run system setup (as a sudo user)
+### 2. Run system setup
+
+Run as your sudo user (not root):
 
 ```bash
 bash /opt/rproxy/scripts/setup.sh
 ```
 
-This installs nginx, Node.js 22, PostgreSQL, PM2, acme.sh, sets up the `rproxy` system user, generates secrets, and configures sudoers.
+This will:
+- Install nginx, Node.js 22, PostgreSQL, PM2, acme.sh
+- Create the `rproxy` system user
+- Set up the PostgreSQL database and generate a random password
+- Write `/opt/rproxy/apps/web/.env.local` with all secrets (mode 600)
+- Configure sudoers and a daily certificate renewal cron job
 
-### 3. Build and start the app (as the rproxy user)
+### 3. Build and start the app
 
 ```bash
 sudo -u rproxy bash /opt/rproxy/scripts/install-app.sh
 ```
 
+This installs dependencies, pushes the database schema, seeds the default admin account, builds the app, and starts it under PM2.
+
 ### 4. Open the UI
 
-Navigate to `http://<your-server-ip>:81`
+```
+http://<your-server-ip>:81
+```
 
 **Default credentials:** `admin` / `admin`
-You will be forced to change the password on first login.
+You will be forced to set a new password on first login.
+
+---
+
+## Updating
+
+```bash
+cd /opt/rproxy
+git pull
+sudo -u rproxy bash -c 'cd apps/web && pnpm install --frozen-lockfile && pnpm build'
+sudo -u rproxy pm2 restart rproxy
+```
+
+If the schema changed, also run:
+
+```bash
+sudo -u rproxy bash -c 'set -a; source apps/web/.env.local; set +a; cd apps/web && npx prisma db push'
+```
 
 ---
 
@@ -102,18 +131,29 @@ The app runs as a dedicated `rproxy` system user. nginx config is managed throug
 - DNS provider API credentials are encrypted at rest (AES-256-GCM, key derived from JWT_SECRET)
 - Custom nginx directives are filtered for dangerous keywords (lua, `include`, `load_module`)
 - The `rproxy` user has only the minimum sudo permissions needed (see `sudoers/rproxy`)
-- Default `admin / admin` password must be changed on first login (enforced)
+- Default `admin / admin` password must be changed on first login (enforced by the app)
 
 ---
 
 ## Development
 
+You'll need a local PostgreSQL instance. Then:
+
 ```bash
 cd apps/web
-cp .env.example .env.local   # fill in values
+cp .env.example .env.local
+# Edit .env.local:
+#   DATABASE_URL — point at your local Postgres
+#   JWT_SECRET / JWT_REFRESH_SECRET — any long random strings
+#   NEXTAUTH_URL — http://localhost:3000
+#   CRON_SECRET — any string
 pnpm install
+npx prisma db push
+npx prisma db seed
 pnpm dev
 ```
+
+The dev server runs on port 3000.
 
 ---
 
