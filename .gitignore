@@ -34,3 +34,6 @@ Thumbs.db
 
 # Temp
 tmp/
+
+# Claude Code project memory
+.claude/
