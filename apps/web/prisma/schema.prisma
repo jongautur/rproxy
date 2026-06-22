@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String   @unique
+  firstName    String?  @map("first_name")
+  lastName     String?  @map("last_name")
+  passwordHash       String   @map("password_hash")
+  role               Role     @default(VIEWER)
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+// ── Proxy Hosts ───────────────────────────────────────────────────────────────
+
+enum ProxyStatus {
+  ACTIVE
+  DISABLED
+  ERROR
+}
+
+model ProxyHost {
+  id          String      @id @default(cuid())
+  domain      String      @unique
+  forwardScheme String    @default("http") @map("forward_scheme")
+  forwardHost String      @map("forward_host")
+  forwardPort Int         @map("forward_port")
+  listenPort  Int         @default(80) @map("listen_port")
+  httpsPort   Int         @default(443) @map("https_port")
+  sslEnabled  Boolean     @default(false) @map("ssl_enabled")
+  forceHttps  Boolean     @default(false) @map("force_https")
+  http2       Boolean     @default(false)
+  websocket   Boolean     @default(false)
+  accessLog   Boolean     @default(true) @map("access_log")
+  errorLog    Boolean     @default(true) @map("error_log")
+
+  customLocations String? @map("custom_locations")
+  customServer    String? @map("custom_server")
+  customHeaders   String? @map("custom_headers")
+
+  status    ProxyStatus @default(ACTIVE)
+  enabled   Boolean     @default(true)
+  configPath String?    @map("config_path")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  certificate   Certificate? @relation(fields: [certificateId], references: [id])
+  certificateId String?      @map("certificate_id")
+
+  healthChecks HealthCheck[]
+
+  accessList   AccessList? @relation(fields: [accessListId], references: [id], onDelete: SetNull)
+  accessListId String?     @map("access_list_id")
+
+  @@map("proxy_hosts")
+}
+
+// ── Certificates ──────────────────────────────────────────────────────────────
+
+enum CertProvider {
+  LETSENCRYPT
+  CUSTOM
+  SELF_SIGNED
+}
+
+enum CertStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  ERROR
+  REVOKED
+}
+
+enum ChallengeType {
+  HTTP
+  DNS
+}
+
+model Certificate {
+  id            String        @id @default(cuid())
+  domain        String
+  provider      CertProvider  @default(LETSENCRYPT)
+  challengeType ChallengeType @default(HTTP) @map("challenge_type")
+  status        CertStatus    @default(PENDING)
+
+  certPath  String? @map("cert_path")
+  keyPath   String? @map("key_path")
+  chainPath String? @map("chain_path")
+
+  issuer    String?
+  subject   String?
+  sans      String[]
+  expiresAt DateTime? @map("expires_at")
+  issuedAt  DateTime? @map("issued_at")
+
+  dnsProvider    String? @map("dns_provider")
+  dnsCredentials String? @map("dns_credentials")
+
+  autoRenew   Boolean   @default(true) @map("auto_renew")
+  lastRenewAt DateTime? @map("last_renew_at")
+  renewError  String?   @map("renew_error")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  proxyHosts ProxyHost[]
+
+  @@map("certificates")
+}
+
+// ── Health Checks ─────────────────────────────────────────────────────────────
+
+enum HealthStatus {
+  UP
+  DOWN
+  UNKNOWN
+}
+
+model HealthCheck {
+  id           String       @id @default(cuid())
+  proxyHostId  String       @map("proxy_host_id")
+  status       HealthStatus @default(UNKNOWN)
+  responseTime Int?         @map("response_time")
+  statusCode   Int?         @map("status_code")
+  error        String?
+  checkedAt    DateTime     @default(now()) @map("checked_at")
+
+  proxyHost ProxyHost @relation(fields: [proxyHostId], references: [id], onDelete: Cascade)
+
+  @@index([proxyHostId, checkedAt(sort: Desc)])
+  @@map("health_checks")
+}
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  ENABLE
+  DISABLE
+  RELOAD_NGINX
+  ISSUE_CERT
+  RENEW_CERT
+  REVOKE_CERT
+  LOGIN
+  LOGOUT
+}
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  userId    String?     @map("user_id")
+  action    AuditAction
+  entity    String
+  entityId  String?     @map("entity_id")
+  details   String?
+  ipAddress String?     @map("ip_address")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+// ── Access Lists ──────────────────────────────────────────────────────────────
+
+model AccessList {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  authEnabled Boolean @default(false) @map("auth_enabled")
+  authRealm   String  @default("Restricted") @map("auth_realm")
+
+  authUsers  AccessListUser[]
+  ipRules    AccessListIpRule[]
+  proxyHosts ProxyHost[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("access_lists")
+}
+
+model AccessListUser {
+  id           String     @id @default(cuid())
+  accessListId String     @map("access_list_id")
+  username     String
+  passwordHash String     @map("password_hash")
+
+  accessList AccessList @relation(fields: [accessListId], references: [id], onDelete: Cascade)
+
+  @@unique([accessListId, username])
+  @@map("access_list_users")
+}
+
+model AccessListIpRule {
+  id           String     @id @default(cuid())
+  accessListId String     @map("access_list_id")
+  address      String
+  action       String     @default("allow")
+  sortOrder    Int        @default(0) @map("sort_order")
+
+  accessList AccessList @relation(fields: [accessListId], references: [id], onDelete: Cascade)
+
+  @@map("access_list_ip_rules")
+}
+
+// ── Access Lists ──────────────────────────────────────────────────────────────

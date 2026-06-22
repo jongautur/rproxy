@@ -1,0 +1,36 @@
+# Environment — never commit secrets
+apps/web/.env.local
+.env.local
+.env.*.local
+
+# Dependencies
+**/node_modules/
+
+# Next.js build output
+apps/web/.next/
+apps/web/out/
+
+# Turbo cache
+.turbo/
+
+# PM2 logs & pid
+.pm2/
+ecosystem.config.js.bak
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp/

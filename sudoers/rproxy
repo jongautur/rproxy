@@ -1,0 +1,22 @@
+# /etc/sudoers.d/rproxy
+# Grants the rproxy service user the minimum privileges needed.
+# Validated with: visudo -cf /etc/sudoers.d/rproxy
+#
+# File operations use nginx-config-helper.sh which does its own
+# strict path validation — no wildcards needed here.
+
+# Nginx config testing and version check
+rproxy ALL=(root) NOPASSWD: /usr/sbin/nginx -t
+rproxy ALL=(root) NOPASSWD: /usr/sbin/nginx -v
+rproxy ALL=(root) NOPASSWD: /usr/sbin/nginx -V
+
+# Systemd nginx management
+rproxy ALL=(root) NOPASSWD: /bin/systemctl reload nginx
+rproxy ALL=(root) NOPASSWD: /bin/systemctl restart nginx
+rproxy ALL=(root) NOPASSWD: /bin/systemctl status nginx
+rproxy ALL=(root) NOPASSWD: /bin/systemctl start nginx
+rproxy ALL=(root) NOPASSWD: /bin/systemctl stop nginx
+rproxy ALL=(root) NOPASSWD: /bin/systemctl is-active nginx
+
+# Config file management via validated helper script
+rproxy ALL=(root) NOPASSWD: /opt/rproxy/scripts/nginx-config-helper.sh
