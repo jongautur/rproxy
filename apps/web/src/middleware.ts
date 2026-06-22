@@ -47,20 +47,15 @@ export async function middleware(req: NextRequest) {
 
   // ── API routes ───────────────────────────────────────────────────────────────
   if (pathname.startsWith("/api/")) {
-    if (!rawToken) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    let apiPayload: JwtPayload | null = null;
+    if (rawToken) {
+      try { apiPayload = await verifyAccessToken(rawToken); } catch { /* expired */ }
     }
-    try {
-      const payload = await verifyAccessToken(rawToken);
-      if (payload.mfaPending) {
-        return NextResponse.json({ success: false, error: "MFA required" }, { status: 401 });
-      }
-      return NextResponse.next();
-    } catch {
-      // Access token expired — try refresh
+    // No token or expired — try refresh (handles cookie deleted by browser after maxAge)
+    if (!apiPayload) {
       const refreshed = await tryRefresh(req);
       if (!refreshed) {
-        return NextResponse.json({ success: false, error: "Token expired" }, { status: 401 });
+        return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
       }
       if (refreshed.payload.mfaPending) {
         return NextResponse.json({ success: false, error: "MFA required" }, { status: 401 });
@@ -69,6 +64,10 @@ export async function middleware(req: NextRequest) {
       setAccessCookie(res, refreshed.newToken);
       return res;
     }
+    if (apiPayload.mfaPending) {
+      return NextResponse.json({ success: false, error: "MFA required" }, { status: 401 });
+    }
+    return NextResponse.next();
   }
 
   // ── Page routes ──────────────────────────────────────────────────────────────
@@ -78,13 +77,15 @@ export async function middleware(req: NextRequest) {
   if (rawToken) {
     try {
       payload = await verifyAccessToken(rawToken);
-    } catch {
-      // Expired — try refresh before giving up
-      const refreshed = await tryRefresh(req);
-      if (refreshed) {
-        payload = refreshed.payload;
-        freshToken = refreshed.newToken;
-      }
+    } catch { /* expired — fall through to refresh */ }
+  }
+
+  // No token or expired — try refresh (handles cookie deleted by browser after maxAge)
+  if (!payload) {
+    const refreshed = await tryRefresh(req);
+    if (refreshed) {
+      payload = refreshed.payload;
+      freshToken = refreshed.newToken;
     }
   }
 
