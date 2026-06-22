@@ -295,3 +295,20 @@ model AccessListIpRule {
 }
 
 // ── Access Lists ──────────────────────────────────────────────────────────────
+
+// ── Stream Hosts ──────────────────────────────────────────────────────────────
+
+model StreamHost {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  protocol    String  @default("TCP")   // TCP | UDP | TCP_UDP
+  listenPort  Int     @map("listen_port")
+  forwardHost String  @map("forward_host")
+  forwardPort Int     @map("forward_port")
+  enabled     Boolean @default(true)
+  configPath  String? @map("config_path")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("stream_hosts")
+}

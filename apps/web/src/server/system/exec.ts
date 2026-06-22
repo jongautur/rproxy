@@ -126,7 +126,8 @@ export async function acmeExec(
 // filename must match /^[a-zA-Z0-9._-]+\.conf$/ (validated inside the script too)
 export async function nginxHelper(
   cmd: "deploy" | "enable" | "disable" | "remove" | "mkdir-ssl" | "log-size" | "log-clean"
-      | "mkdir-access-lists" | "deploy-htpasswd" | "remove-htpasswd",
+      | "mkdir-access-lists" | "deploy-htpasswd" | "remove-htpasswd"
+      | "stream-deploy" | "stream-remove" | "mkdir-stream",
   arg?: string
 ): Promise<ExecResult> {
   const helperPath = "/opt/rproxy/scripts/nginx-config-helper.sh";

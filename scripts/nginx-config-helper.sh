@@ -142,6 +142,43 @@ case "$CMD" in
     ;;
 
 
+
+  stream-deploy)
+    # Usage: stream-deploy <filename.conf>
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    SRC="$STAGING_DIR/$FILENAME"
+    DST="/etc/nginx/stream.d/$FILENAME"
+    validate_path_in_dir "$SRC" "$STAGING_DIR"
+    if [[ "$( realpath -m "$DST" )" != "/etc/nginx/stream.d/"* ]]; then
+      echo "ERROR: Path outside stream.d" >&2; exit 1
+    fi
+    if [[ ! -f "$SRC" ]]; then
+      echo "ERROR: Staging file not found: $SRC" >&2; exit 1
+    fi
+    cp -- "$SRC" "$DST"
+    echo "OK: stream-deployed $FILENAME"
+    ;;
+
+  stream-remove)
+    # Usage: stream-remove <filename.conf>
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    DST="/etc/nginx/stream.d/$FILENAME"
+    if [[ "$(realpath -m "$DST")" != "/etc/nginx/stream.d/"* ]]; then
+      echo "ERROR: Path outside stream.d" >&2; exit 1
+    fi
+    rm -f -- "$DST"
+    echo "OK: stream-removed $FILENAME"
+    ;;
+
+  mkdir-stream)
+    mkdir -p /etc/nginx/stream.d
+    chown root:root /etc/nginx/stream.d
+    chmod 755 /etc/nginx/stream.d
+    echo "OK: /etc/nginx/stream.d ready"
+    ;;
+
   log-size)
     total=0
     for dir in /var/log/nginx /var/log/rproxy; do

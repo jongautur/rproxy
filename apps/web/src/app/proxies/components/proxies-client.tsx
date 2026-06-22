@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, RefreshCw, Globe, CornerUpRight } from "lucide-react";
+import { Plus, RefreshCw, Globe, CornerUpRight, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -11,6 +11,9 @@ import { RedirectTable } from "./redirect-table";
 import { RedirectFormDialog } from "./redirect-form-dialog";
 import type { ProxyHostWithCert } from "@/types/proxy";
 import type { RedirectHostWithCert } from "@/types/redirect";
+import { StreamTable } from "./stream-table";
+import { StreamFormDialog } from "./stream-form-dialog";
+import type { StreamHost } from "@prisma/client";
 
 interface PaginatedProxies {
   items: ProxyHostWithCert[];
@@ -35,6 +38,12 @@ export function ProxiesClient() {
   const [redirectLoading, setRedirectLoading] = useState(true);
   const [redirectDialogOpen, setRedirectDialogOpen] = useState(false);
   const [editRedirect, setEditRedirect] = useState<RedirectHostWithCert | null>(null);
+
+  // Stream state
+  const [streamItems, setStreamItems] = useState<StreamHost[]>([]);
+  const [streamLoading, setStreamLoading] = useState(true);
+  const [streamDialogOpen, setStreamDialogOpen] = useState(false);
+  const [editStream, setEditStream] = useState<StreamHost | null>(null);
 
   const [reloading, setReloading] = useState(false);
   const [activeTab, setActiveTab] = useState("proxy");
@@ -68,8 +77,22 @@ export function ProxiesClient() {
     }
   }, [toast]);
 
+  const fetchStreams = useCallback(async () => {
+    setStreamLoading(true);
+    try {
+      const res = await fetch("/api/streams");
+      const json = await res.json() as { success: boolean; data: { items: StreamHost[] } };
+      if (json.success) setStreamItems(json.data.items);
+    } catch {
+      toast({ variant: "destructive", title: "Failed to load stream hosts" });
+    } finally {
+      setStreamLoading(false);
+    }
+  }, [toast]);
+
   useEffect(() => { void fetchProxies(); }, [fetchProxies]);
   useEffect(() => { void fetchRedirects(); }, [fetchRedirects]);
+  useEffect(() => { void fetchStreams(); }, [fetchStreams]);
 
   async function handleReloadNginx() {
     setReloading(true);
@@ -92,7 +115,7 @@ export function ProxiesClient() {
     }
   }
 
-  const totalHosts = (proxyData?.total ?? 0) + redirectItems.length;
+  const totalHosts = (proxyData?.total ?? 0) + redirectItems.length + streamItems.length;
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
@@ -124,6 +147,12 @@ export function ProxiesClient() {
               Add Redirect
             </Button>
           )}
+          {activeTab === "stream" && (
+            <Button size="sm" onClick={() => { setEditStream(null); setStreamDialogOpen(true); }}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Stream Host
+            </Button>
+          )}
         </div>
       </div>
 
@@ -141,6 +170,11 @@ export function ProxiesClient() {
             <CornerUpRight className="w-4 h-4" />
             Redirects
             <span className="ml-1 text-xs bg-muted rounded px-1.5 py-0.5">{redirectItems.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="stream" className="gap-2">
+            <Network className="w-4 h-4" />
+            Stream
+            <span className="ml-1 text-xs bg-muted rounded px-1.5 py-0.5">{streamItems.length}</span>
           </TabsTrigger>
         </TabsList>
 
@@ -163,6 +197,14 @@ export function ProxiesClient() {
             onRefresh={fetchRedirects}
           />
         </TabsContent>
+
+        <TabsContent value="stream" className="mt-4">
+          <StreamTable
+            items={streamItems}
+            onEdit={(s) => { setEditStream(s); setStreamDialogOpen(true); }}
+            onRefresh={fetchStreams}
+          />
+        </TabsContent>
       </Tabs>
 
       {/* Dialogs */}
@@ -177,6 +219,12 @@ export function ProxiesClient() {
         onOpenChange={setRedirectDialogOpen}
         redirect={editRedirect}
         onSaved={() => { setRedirectDialogOpen(false); setEditRedirect(null); void fetchRedirects(); }}
+      />
+      <StreamFormDialog
+        open={streamDialogOpen}
+        onOpenChange={setStreamDialogOpen}
+        editingStream={editStream}
+        onSaved={() => { setStreamDialogOpen(false); setEditStream(null); void fetchStreams(); }}
       />
     </div>
   );
