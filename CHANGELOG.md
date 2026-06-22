@@ -7,61 +7,69 @@ All notable changes to rproxy are documented here.
 ## [1.0.0] — 2026-06-22
 
 ### Added
-- **Stream Hosts** — TCP and UDP proxying via the nginx `stream` module. Configure port-forwarding rules (e.g. Minecraft, SSH, database) directly from the UI with protocol selection (TCP / UDP / TCP+UDP), forward host, and listen port.
+- **Stream Hosts** — TCP and UDP proxying via the nginx `stream` module. Configure port-forwarding rules (e.g. Minecraft, SSH, database) with protocol selection (TCP / UDP / TCP+UDP), listen port, and forward host:port.
 - Stream host table with protocol badge, enable/disable toggle, edit and delete.
-- `stream-deploy`, `stream-remove`, and `mkdir-stream` commands in the nginx config helper.
+- `stream-deploy`, `stream-remove`, and `mkdir-stream` commands in the nginx config helper script.
 - `stream {}` block in `/etc/nginx/nginx.conf` with `include /etc/nginx/stream.d/*.conf`.
 
 ### Fixed
 - Install `libnginx-mod-stream` in `setup.sh` — the stream module is dynamic on standard Ubuntu nginx builds and must be installed separately; without it nginx silently rejects the `stream {}` block and no ports open.
+- Middleware now attempts session refresh even when the access token cookie has been deleted by the browser (after its 15-minute `maxAge`), not only when an expired token is present. This prevented users from being redirected to `/login` after the cookie expired despite having a valid 7-day refresh token.
 
 ## [0.8.0] — 2026-06-22
 
 ### Added
-- **Two-Factor Authentication (TOTP)** — RFC 6238 compliant, implemented with pure Node.js `crypto` (no external TOTP runtime). No third-party services involved at any point.
-- QR code rendered server-side as SVG using the `qrcode` package — zero external image requests.
+- **Two-Factor Authentication (TOTP)** — RFC 6238 compliant, implemented with pure Node.js `crypto` (no external TOTP runtime or image services).
+- QR code rendered server-side as an SVG string via the `qrcode` package — displayed inline, no external requests.
 - TOTP secret encrypted at rest with AES-256-GCM.
-- 8 single-use backup codes (bcrypt-hashed) generated on TOTP setup.
-- `/mfa` page for the two-step login flow.
-- `POST /api/auth/mfa` endpoint — verifies TOTP code or backup code, issues real session tokens.
-- `GET/POST/DELETE /api/settings/totp` — setup, enable, and disable TOTP.
-- TOTP setup card in Settings → Security with inline QR display, manual key reveal, and backup code grid.
-- `mfaPending` JWT claim to gate the MFA step between login and full session.
-- **Force password change on first login** — seed admin is created with `mustChangePassword: true`; middleware redirects to `/change-password` until the password is updated and fresh tokens are issued.
+- 8 single-use backup codes (bcrypt-hashed) generated at TOTP setup, shown once in a copyable grid.
+- `/mfa` page for the two-step login flow — accepts 6-digit TOTP or 8-character backup code.
+- `POST /api/auth/mfa` — verifies code, issues full session tokens.
+- `GET/POST/DELETE /api/settings/totp` — setup flow, enable, and disable endpoints.
+- TOTP card in Settings → Security: inline QR display, manual key reveal/copy, backup code grid.
+- `mfaPending` JWT claim gates the MFA step between credential login and full session.
+- **Force password change on first login** — seed admin is created with `mustChangePassword: true`. Middleware redirects to `/change-password` until updated; fresh tokens are issued immediately so no re-login is needed.
+- `/change-password` page with current password verification.
+
+### Fixed
+- Session refresh cookie `path` corrected from `/api/auth` to `/` — browsers were not sending the refresh token on page navigations, causing premature logouts.
+- Middleware now silently refreshes the access token on both API routes and page routes when the access token is expired, so the 7-day refresh token is fully utilised.
 
 ## [0.7.0] — 2026-06-22
 
 ### Added
-- **Traffic Stats dashboard card** — 24-hour request count, bandwidth, error rate, and top 5 hosts by traffic. Populated by the existing access-log cron job.
-- **Notifications** — email (SMTP) and webhook channels. Configurable per-event (host down, host recovery, certificate expiring, certificate renewal failed). Includes a test-send button and per-channel enable toggle.
-- Health check transitions now fire notifications on DOWN/UP state changes.
-- Certificate service fires `cert_expiring` (≤14 days) and `cert_renewal_failed` notifications.
+- **Traffic Stats card** on the dashboard — 24-hour request count, total bandwidth, error rate (highlighted red above 5%), and top 5 hosts by traffic. Data is populated by the access-log cron job.
+- **Notifications** — email (SMTP) and webhook delivery channels. Per-channel enable toggle and test-send button. Fires on: host down, host recovery, certificate expiring (≤14 days), certificate renewal failed.
+- Health check service detects DOWN/UP transitions and calls `fireNotification()`.
+- Certificate service fires `cert_expiring` and `cert_renewal_failed` events.
 
 ## [0.6.0] — 2026-06-22
 
 ### Added
-- **Redirect Hosts** — HTTP/HTTPS redirects managed through nginx, with configurable target URL, HTTP status code (301/302/307/308), and optional SSL.
-- **Custom certificate upload** — bring your own cert/key pair instead of using ACME.
+- **Redirect Hosts** — HTTP/HTTPS redirects managed via nginx, with configurable target URL, HTTP status code (301/302/307/308), and optional SSL/TLS.
+- **Custom certificate upload** — supply your own cert/key pair as an alternative to ACME.
 - Redirect host table with status badge, enable/disable toggle, edit and delete.
-- TLS support in redirect config generator.
 
 ## [0.5.0] — 2026-06-22
 
 ### Changed
-- Roadmap formalised through v1.0.0.
+- Internal roadmap formalised through v1.0.0.
 
 ## [0.1.0] — 2026-06-22
 
 ### Added
-- Initial release — native Linux reverse proxy manager built on Next.js 15, nginx, PostgreSQL, and Prisma.
-- Proxy host management: create, edit, delete, enable/disable with live nginx config generation and reload.
-- SSL/TLS via ACME (Let's Encrypt) with automatic renewal cron.
-- WebSocket, HTTP/2, and force-HTTPS options per proxy host.
-- Health monitoring with per-host UP/DOWN probing and history.
-- Dashboard with expiring certificate warnings.
-- Domain grouping toggle on the proxy hosts table — groups subdomains under their root domain with expand/collapse.
-- User management with role-based access (admin/user).
-- JWT authentication with 15-minute access tokens and 7-day refresh tokens (HttpOnly cookies). Middleware transparently refreshes the session so users stay logged in for the full 7 days without re-authenticating.
-- Settings: profile, password change, notification channels, security (2FA).
-- Privileged nginx config helper script (`nginx-config-helper.sh`) called via `sudo` — the app process never runs as root.
-- `setup.sh` for one-command server provisioning.
+- **Proxy Hosts** — create, edit, delete, enable/disable reverse proxy entries. Live nginx config generation and reload on every change. Options per host: SSL/TLS (ACME), WebSocket, HTTP/2, force HTTPS.
+- Domain grouping toggle on the proxy table — collapses subdomains under their root domain with expand/collapse per group.
+- **SSL/TLS certificates** — issue via ACME (Let's Encrypt / ZeroSSL) with automatic renewal cron, or upload custom cert/key pairs. Certificate table with expiry dates and manual renewal trigger.
+- **Access Lists** — IP-based allow/deny rules and HTTP basic-auth (htpasswd) lists, attachable to proxy hosts. Full CRUD with search.
+- **Log Viewer** — real-time nginx log streaming via Server-Sent Events. Switch between log files, pause/resume stream, search/filter lines, syntax-highlighted status codes (2xx/3xx/4xx/5xx), download raw log.
+- **Activity Log** — paginated audit trail of all create/update/delete/login actions across the app, with action-type badges, search, and user filter.
+- **System page** — live CPU, RAM, and disk usage gauges; nginx status with start/stop/reload controls; uptime and last-reload timestamp.
+- **Multi-user support** — admin can create, edit, and delete users from Settings → Users. Roles: `ADMIN` (full access) and `VIEWER` (read-only).
+- **Dashboard** — host count, certificate health, expiring-cert warnings, recent activity feed, nginx status card, and traffic stats.
+- **Health monitoring** — per-proxy-host UP/DOWN probing with response-time display, stored history, and notification hooks.
+- JWT authentication — 15-minute access tokens + 7-day refresh tokens in `HttpOnly` cookies. Middleware transparently refreshes sessions; users stay logged in for the full 7 days.
+- Settings: profile edit, password change, notification channels, security (TOTP).
+- Backup and config export via `/api/system/backup` and `/api/system/export`.
+- Privileged nginx config helper (`nginx-config-helper.sh`) called via `sudo` with strict argument validation — the app process never runs as root.
+- `setup.sh` for one-command server provisioning (Node.js, PostgreSQL, nginx, PM2, rproxy user, sudoers entry).
