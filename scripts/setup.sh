@@ -126,9 +126,9 @@ fi
 if [[ ! -f "${RPROXY_HOME}/.acme.sh/acme.sh" ]]; then
   info "Installing acme.sh for ${RPROXY_USER}..."
   sudo -u "$RPROXY_USER" bash -c '
-    curl -fsSL https://get.acme.sh -o ${RPROXY_HOME}/acme-install.sh
-    bash ${RPROXY_HOME}/acme-install.sh --install-online --nocron --noemail 2>&1 || true
-    rm -f ${RPROXY_HOME}/acme-install.sh
+    curl -fsSL https://get.acme.sh -o "$HOME/acme-install.sh"
+    bash "$HOME/acme-install.sh" --install-online --nocron --noemail 2>&1 || true
+    rm -f "$HOME/acme-install.sh"
   '
   [[ -f "${RPROXY_HOME}/.acme.sh/acme.sh" ]] \
     && success "acme.sh installed" \
@@ -189,14 +189,14 @@ success "Directories ready"
 
 # ── 11. PM2 startup (as rproxy) ───────────────────────────────────────────────
 info "Registering PM2 startup service..."
-chmod +x /opt/rproxy/scripts/start-app.sh /opt/rproxy/scripts/install-app.sh
+sudo chmod +x /opt/rproxy/scripts/start-app.sh /opt/rproxy/scripts/install-app.sh
 sudo -u "$RPROXY_USER" pm2 startup systemd -u "$RPROXY_USER" --hp "$RPROXY_HOME" 2>/dev/null \
   | grep 'sudo' | bash || true
 success "PM2 startup registered"
 
 # ── 12. Certificate renewal cron (rproxy user) ───────────────────────────────
 info "Installing certificate renewal cron..."
-chmod +x /opt/rproxy/scripts/renew-certs.sh
+sudo chmod +x /opt/rproxy/scripts/renew-certs.sh
 CRON_JOB="0 3 * * * /opt/rproxy/scripts/renew-certs.sh >> /var/log/rproxy/renew-certs.log 2>&1"
 ( sudo crontab -u "$RPROXY_USER" -l 2>/dev/null | grep -v 'renew-certs.sh'; echo "$CRON_JOB" ) \
   | sudo crontab -u "$RPROXY_USER" -
