@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { signAccessToken, signRefreshToken } from "@/lib/jwt";
+import { signAccessToken, signRefreshToken, signMfaPendingToken } from "@/lib/jwt";
 import { setAuthCookies } from "@/lib/cookies";
 import { loginSchema } from "@/lib/validation";
 import { ok, badRequest, unauthorized, fromError } from "@/lib/api-response";
@@ -29,6 +29,27 @@ export async function POST(req: NextRequest) {
 
     if (!user || !valid) {
       return unauthorized("Invalid username or password");
+    }
+
+    // If TOTP is enabled, issue a short-lived mfa_pending token instead
+    if (user.totpEnabled) {
+      const mfaToken = await signMfaPendingToken({
+        sub: user.id,
+        username: user.username,
+        role: user.role,
+      });
+      // Reuse the access token cookie slot — middleware will detect mfaPending
+      const { cookies } = await import("next/headers");
+      const cookieStore = await cookies();
+      const IS_HTTPS = process.env.NEXTAUTH_URL?.startsWith("https://") ?? false;
+      cookieStore.set("rproxy_access", mfaToken, {
+        httpOnly: true,
+        secure: IS_HTTPS,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 120,
+      });
+      return ok({ mfaRequired: true });
     }
 
     const tokenPayload = {

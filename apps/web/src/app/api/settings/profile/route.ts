@@ -16,7 +16,7 @@ export async function GET() {
     const session = await requireSession();
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: session.id },
-      select: { id: true, username: true, email: true, firstName: true, lastName: true, role: true },
+      select: { id: true, username: true, email: true, firstName: true, lastName: true, role: true, totpEnabled: true },
     });
     return ok({ user });
   } catch (e) {

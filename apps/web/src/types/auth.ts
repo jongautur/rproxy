@@ -6,6 +6,7 @@ export interface JwtPayload {
   role: Role;
   type: "access" | "refresh";
   mustChangePassword?: boolean;
+  mfaPending?: boolean;  // true = only valid for /api/auth/mfa
   iat?: number;
   exp?: number;
 }

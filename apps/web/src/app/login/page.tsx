@@ -31,7 +31,7 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json() as { success: boolean; error?: string };
+      const data = await res.json() as { success: boolean; error?: string; mfaRequired?: boolean };
 
       if (!res.ok) {
         toast({
@@ -39,6 +39,11 @@ export default function LoginPage() {
           title: "Login failed",
           description: data.error ?? "Invalid credentials",
         });
+        return;
+      }
+
+      if (data.mfaRequired) {
+        router.push("/mfa");
         return;
       }
 

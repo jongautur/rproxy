@@ -25,6 +25,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { NotificationsTab } from "./notifications-tab";
+import { TotpCard } from "./totp-card";
 
 interface AppUser {
   id: string;
@@ -43,6 +44,7 @@ interface Profile {
   firstName: string | null;
   lastName: string | null;
   role: string;
+  totpEnabled?: boolean;
 }
 
 interface SettingsData {
@@ -54,6 +56,7 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
   const { toast } = useToast();
   const [data, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [totpEnabled, setTotpEnabled] = useState(false);
 
   // Profile
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -102,6 +105,7 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
       const json = await res.json() as { success: boolean; data: { user: Profile } };
       if (json.success) {
         setProfile(json.data.user);
+        setTotpEnabled(json.data.user.totpEnabled ?? false);
         setProfileForm({
           firstName: json.data.user.firstName ?? "",
           lastName: json.data.user.lastName ?? "",
@@ -143,6 +147,7 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
       if (json.success && json.data) {
         toast({ title: "Profile saved" });
         setProfile(json.data.user);
+        setTotpEnabled(json.data.user.totpEnabled ?? false);
       } else {
         toast({ variant: "destructive", title: "Save failed", description: json.error });
       }
@@ -413,6 +418,8 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
               </Button>
             </CardContent>
           </Card>
+
+          <TotpCard totpEnabled={totpEnabled} onToggle={() => setTotpEnabled((v) => !v)} />
         </TabsContent>
 
         {/* Data tab */}

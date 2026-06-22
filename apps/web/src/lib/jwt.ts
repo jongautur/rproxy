@@ -32,6 +32,16 @@ export async function signRefreshToken(
     .sign(getSecret(requireEnv("JWT_REFRESH_SECRET")));
 }
 
+export async function signMfaPendingToken(
+  payload: Pick<JwtPayload, "sub" | "username" | "role">
+): Promise<string> {
+  return new SignJWT({ ...payload, type: "access", mfaPending: true } as JWTPayload & JwtPayload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("2m")
+    .sign(getSecret(requireEnv("JWT_SECRET")));
+}
+
 export async function verifyAccessToken(token: string): Promise<JwtPayload> {
   const { payload } = await jwtVerify(
     token,
