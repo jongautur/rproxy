@@ -55,6 +55,17 @@ export const proxyHostSchema = z.object({
   accessListId: z.string().cuid().nullable().optional(),
 });
 
+
+// ── Redirect host form ────────────────────────────────────────────────────────
+export const redirectHostSchema = z.object({
+  sourceDomain: domainSchema,
+  destination: z.string().url("Destination must be a valid URL").max(2048),
+  redirectCode: z.literal(301).or(z.literal(302)).default(301),
+  preservePath: z.boolean().default(true),
+  sslEnabled: z.boolean().default(false),
+  certificateId: z.string().cuid().optional(),
+});
+
 // ── Certificate form ──────────────────────────────────────────────────────────
 export const certificateSchema = z.object({
   domain: domainSchema,

@@ -20,7 +20,7 @@ import { useRouter } from "next/navigation";
 
 const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/proxies", icon: Globe, label: "Proxy Hosts" },
+  { href: "/proxies", icon: Globe, label: "Hosts" },
   { href: "/certificates", icon: Lock, label: "Certificates" },
   { href: "/logs", icon: FileText, label: "Logs" },
   { href: "/system", icon: Server, label: "System" },

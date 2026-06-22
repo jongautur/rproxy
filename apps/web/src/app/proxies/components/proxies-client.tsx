@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Search, RefreshCw, Globe } from "lucide-react";
+import { Plus, RefreshCw, Globe, CornerUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ProxyTable } from "./proxy-table";
 import { ProxyFormDialog } from "./proxy-form-dialog";
+import { RedirectTable } from "./redirect-table";
+import { RedirectFormDialog } from "./redirect-form-dialog";
 import type { ProxyHostWithCert } from "@/types/proxy";
+import type { RedirectHostWithCert } from "@/types/redirect";
 
 interface PaginatedProxies {
   items: ProxyHostWithCert[];
@@ -19,36 +22,54 @@ interface PaginatedProxies {
 
 export function ProxiesClient() {
   const { toast } = useToast();
-  const [data, setData] = useState<PaginatedProxies | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editProxy, setEditProxy] = useState<ProxyHostWithCert | null>(null);
-  const [reloading, setReloading] = useState(false);
 
+  // Proxy state
+  const [proxyData, setProxyData] = useState<PaginatedProxies | null>(null);
+  const [proxyLoading, setProxyLoading] = useState(true);
+  const [proxyPage, setProxyPage] = useState(1);
+  const [proxyDialogOpen, setProxyDialogOpen] = useState(false);
+  const [editProxy, setEditProxy] = useState<ProxyHostWithCert | null>(null);
+
+  // Redirect state
+  const [redirectItems, setRedirectItems] = useState<RedirectHostWithCert[]>([]);
+  const [redirectLoading, setRedirectLoading] = useState(true);
+  const [redirectDialogOpen, setRedirectDialogOpen] = useState(false);
+  const [editRedirect, setEditRedirect] = useState<RedirectHostWithCert | null>(null);
+
+  const [reloading, setReloading] = useState(false);
+  const [activeTab, setActiveTab] = useState("proxy");
+
+  // ── Fetch proxies ────────────────────────────────────────────────────────────
   const fetchProxies = useCallback(async () => {
-    setLoading(true);
+    setProxyLoading(true);
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        perPage: "20",
-        ...(search && { search }),
-      });
+      const params = new URLSearchParams({ page: String(proxyPage), perPage: "20" });
       const res = await fetch(`/api/proxies?${params}`);
       const json = await res.json() as { success: boolean; data: PaginatedProxies };
-      if (json.success) setData(json.data);
+      if (json.success) setProxyData(json.data);
     } catch {
-      toast({ variant: "destructive", title: "Failed to load proxies" });
+      toast({ variant: "destructive", title: "Failed to load proxy hosts" });
     } finally {
-      setLoading(false);
+      setProxyLoading(false);
     }
-  }, [page, search, toast]);
+  }, [proxyPage, toast]);
 
-  useEffect(() => {
-    const id = setTimeout(() => fetchProxies(), search ? 300 : 0);
-    return () => clearTimeout(id);
-  }, [fetchProxies, search]);
+  // ── Fetch redirects ──────────────────────────────────────────────────────────
+  const fetchRedirects = useCallback(async () => {
+    setRedirectLoading(true);
+    try {
+      const res = await fetch("/api/redirects");
+      const json = await res.json() as { success: boolean; data: { items: RedirectHostWithCert[] } };
+      if (json.success) setRedirectItems(json.data.items);
+    } catch {
+      toast({ variant: "destructive", title: "Failed to load redirects" });
+    } finally {
+      setRedirectLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => { void fetchProxies(); }, [fetchProxies]);
+  useEffect(() => { void fetchRedirects(); }, [fetchRedirects]);
 
   async function handleReloadNginx() {
     setReloading(true);
@@ -71,21 +92,7 @@ export function ProxiesClient() {
     }
   }
 
-  function handleCreate() {
-    setEditProxy(null);
-    setDialogOpen(true);
-  }
-
-  function handleEdit(proxy: ProxyHostWithCert) {
-    setEditProxy(proxy);
-    setDialogOpen(true);
-  }
-
-  function handleSaved() {
-    setDialogOpen(false);
-    setEditProxy(null);
-    fetchProxies();
-  }
+  const totalHosts = (proxyData?.total ?? 0) + redirectItems.length;
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
@@ -94,56 +101,82 @@ export function ProxiesClient() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Globe className="w-6 h-6 text-primary" />
-            Proxy Hosts
+            Hosts
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            {data ? `${data.total} host${data.total !== 1 ? "s" : ""} configured` : "Manage your reverse proxies"}
+            {totalHosts} host{totalHosts !== 1 ? "s" : ""} configured
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleReloadNginx}
-            disabled={reloading}
-          >
+          <Button variant="outline" size="sm" onClick={handleReloadNginx} disabled={reloading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${reloading ? "animate-spin" : ""}`} />
             Reload Nginx
           </Button>
-          <Button size="sm" onClick={handleCreate}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Proxy Host
-          </Button>
+          {activeTab === "proxy" && (
+            <Button size="sm" onClick={() => { setEditProxy(null); setProxyDialogOpen(true); }}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Proxy Host
+            </Button>
+          )}
+          {activeTab === "redirect" && (
+            <Button size="sm" onClick={() => { setEditRedirect(null); setRedirectDialogOpen(true); }}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Redirect
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search domains or hosts..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          className="pl-9"
-        />
-      </div>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="proxy" className="gap-2">
+            <Globe className="w-4 h-4" />
+            Proxy Hosts
+            {proxyData && (
+              <span className="ml-1 text-xs bg-muted rounded px-1.5 py-0.5">{proxyData.total}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="redirect" className="gap-2">
+            <CornerUpRight className="w-4 h-4" />
+            Redirects
+            <span className="ml-1 text-xs bg-muted rounded px-1.5 py-0.5">{redirectItems.length}</span>
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Table */}
-      <ProxyTable
-        data={data}
-        loading={loading}
-        onEdit={handleEdit}
-        onRefresh={fetchProxies}
-        page={page}
-        onPageChange={setPage}
-      />
+        <TabsContent value="proxy" className="mt-4">
+          <ProxyTable
+            data={proxyData}
+            loading={proxyLoading}
+            onEdit={(p) => { setEditProxy(p); setProxyDialogOpen(true); }}
+            onRefresh={fetchProxies}
+            page={proxyPage}
+            onPageChange={setProxyPage}
+          />
+        </TabsContent>
 
-      {/* Create/Edit dialog */}
+        <TabsContent value="redirect" className="mt-4">
+          <RedirectTable
+            items={redirectItems}
+            loading={redirectLoading}
+            onEdit={(r) => { setEditRedirect(r); setRedirectDialogOpen(true); }}
+            onRefresh={fetchRedirects}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* Dialogs */}
       <ProxyFormDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        open={proxyDialogOpen}
+        onOpenChange={setProxyDialogOpen}
         proxy={editProxy}
-        onSaved={handleSaved}
+        onSaved={() => { setProxyDialogOpen(false); setEditProxy(null); void fetchProxies(); }}
+      />
+      <RedirectFormDialog
+        open={redirectDialogOpen}
+        onOpenChange={setRedirectDialogOpen}
+        redirect={editRedirect}
+        onSaved={() => { setRedirectDialogOpen(false); setEditRedirect(null); void fetchRedirects(); }}
       />
     </div>
   );

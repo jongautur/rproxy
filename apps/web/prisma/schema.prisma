@@ -76,6 +76,26 @@ model ProxyHost {
   @@map("proxy_hosts")
 }
 
+
+// ── Redirect Hosts ────────────────────────────────────────────────────────────
+
+model RedirectHost {
+  id            String       @id @default(cuid())
+  sourceDomain  String       @unique @map("source_domain")
+  destination   String
+  redirectCode  Int          @default(301) @map("redirect_code")
+  preservePath  Boolean      @default(true) @map("preserve_path")
+  sslEnabled    Boolean      @default(false) @map("ssl_enabled")
+  enabled       Boolean      @default(true)
+  configPath    String?      @map("config_path")
+  certificate   Certificate? @relation(fields: [certificateId], references: [id], onDelete: SetNull)
+  certificateId String?      @map("certificate_id")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  @@map("redirect_hosts")
+}
+
 // ── Certificates ──────────────────────────────────────────────────────────────
 
 enum CertProvider {
@@ -124,7 +144,8 @@ model Certificate {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  proxyHosts ProxyHost[]
+  proxyHosts    ProxyHost[]
+  redirectHosts RedirectHost[]
 
   @@map("certificates")
 }

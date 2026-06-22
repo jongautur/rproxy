@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Search, Lock } from "lucide-react";
+import { Plus, Search, Lock, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { CertTable } from "./cert-table";
 import { IssueCertDialog } from "./issue-cert-dialog";
+import { UploadCertDialog } from "./upload-cert-dialog";
 import type { CertificateWithHosts } from "@/types/certificate";
 
 interface PaginatedCerts {
@@ -23,7 +24,8 @@ export function CertificatesClient() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const fetchCerts = useCallback(async () => {
     setLoading(true);
@@ -56,10 +58,16 @@ export function CertificatesClient() {
             {data ? `${data.total} certificate${data.total !== 1 ? "s" : ""}` : "Manage SSL/TLS certificates"}
           </p>
         </div>
-        <Button size="sm" onClick={() => setDialogOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Issue Certificate
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setUploadOpen(true)}>
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Certificate
+          </Button>
+          <Button size="sm" onClick={() => setIssueOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Issue Certificate
+          </Button>
+        </div>
       </div>
 
       <div className="relative max-w-sm">
@@ -81,9 +89,15 @@ export function CertificatesClient() {
       />
 
       <IssueCertDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onIssued={() => { setDialogOpen(false); fetchCerts(); }}
+        open={issueOpen}
+        onOpenChange={setIssueOpen}
+        onIssued={() => { setIssueOpen(false); void fetchCerts(); }}
+      />
+
+      <UploadCertDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        onUploaded={() => { setUploadOpen(false); void fetchCerts(); }}
       />
     </div>
   );
