@@ -33,6 +33,11 @@ pnpm run prisma:push
 
 pnpm build
 
+if [[ "${RPROXY_SKIP_RESTART:-0}" == "1" ]]; then
+  echo "Update complete."
+  exit 0
+fi
+
 # Restart via PM2 if running; systemd restart is handled externally by the caller.
 if command -v pm2 &>/dev/null && pm2 describe rproxy &>/dev/null 2>&1; then
   pm2 restart rproxy
@@ -40,7 +45,7 @@ if command -v pm2 &>/dev/null && pm2 describe rproxy &>/dev/null 2>&1; then
 fi
 
 for _ in {1..60}; do
-  if curl -fsS -o /dev/null http://127.0.0.1:81; then
+  if curl -fs -o /dev/null http://127.0.0.1:81; then
     echo "rproxy is responding on port 81."
     echo "Update complete."
     exit 0
