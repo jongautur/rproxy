@@ -29,7 +29,7 @@ info "Installing system packages..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq \
   curl wget git build-essential ca-certificates \
-  nginx openssl socat cron \
+  nginx libnginx-mod-stream openssl socat cron \
   postgresql postgresql-contrib \
   gnupg lsb-release
 success "System packages installed"
@@ -161,6 +161,7 @@ server {
 NGINX
 sudo ln -sf /etc/nginx/sites-available/acme-challenge /etc/nginx/sites-enabled/acme-challenge
 
+sudo mkdir -p /etc/nginx/stream.d
 sudo systemctl enable nginx
 sudo nginx -t && sudo systemctl reload nginx
 success "Nginx configured"
