@@ -187,9 +187,9 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
             </div>
           </div>
         </td>
-        <td className="px-6 py-4 text-muted-foreground">{proxy.forwardHost}</td>
-        <td className="px-4 py-4 text-muted-foreground">{proxy.forwardPort}</td>
-        <td className="px-4 py-4">
+        <td className="hidden sm:table-cell px-6 py-4 text-muted-foreground">{proxy.forwardHost}</td>
+        <td className="hidden sm:table-cell px-4 py-4 text-muted-foreground">{proxy.forwardPort}</td>
+        <td className="hidden md:table-cell px-4 py-4">
           <div className="flex items-center gap-1.5">
             {proxy.sslEnabled && <span title="SSL"><Lock className="w-3.5 h-3.5 text-success" /></span>}
             {proxy.websocket && <span title="WebSocket"><Wifi className="w-3.5 h-3.5 text-primary" /></span>}
@@ -198,7 +198,7 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
           </div>
         </td>
         <td className="px-4 py-4"><StatusBadge status={proxy.status} enabled={proxy.enabled} /></td>
-        <td className="px-4 py-4">
+        <td className="hidden sm:table-cell px-4 py-4">
           {healthMap[proxy.id] ? (
             <div className="flex items-center gap-1.5">
               <span className={cn("w-2 h-2 rounded-full shrink-0", healthMap[proxy.id]!.status === "UP" ? "bg-green-500" : "bg-red-500")} />
@@ -260,11 +260,11 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-6 py-3 text-muted-foreground font-medium">Domain</th>
-                    <th className="text-left px-6 py-3 text-muted-foreground font-medium">Forward To</th>
-                    <th className="text-left px-4 py-3 text-muted-foreground font-medium">Port</th>
-                    <th className="text-left px-4 py-3 text-muted-foreground font-medium">Features</th>
+                    <th className="hidden sm:table-cell text-left px-6 py-3 text-muted-foreground font-medium">Forward To</th>
+                    <th className="hidden sm:table-cell text-left px-4 py-3 text-muted-foreground font-medium">Port</th>
+                    <th className="hidden md:table-cell text-left px-4 py-3 text-muted-foreground font-medium">Features</th>
                     <th className="text-left px-4 py-3 text-muted-foreground font-medium">Status</th>
-                    <th className="text-left px-4 py-3 text-muted-foreground font-medium">Health</th>
+                    <th className="hidden sm:table-cell text-left px-4 py-3 text-muted-foreground font-medium">Health</th>
                     <th className="text-left px-4 py-3 text-muted-foreground font-medium">Enabled</th>
                     <th className="text-right px-6 py-3 text-muted-foreground font-medium">Actions</th>
                   </tr>

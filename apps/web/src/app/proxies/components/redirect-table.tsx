@@ -103,9 +103,9 @@ export function RedirectTable({ items, loading, onEdit, onRefresh }: Props) {
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-6 py-3 text-muted-foreground font-medium">Source Domain</th>
-                    <th className="text-left px-6 py-3 text-muted-foreground font-medium">Destination</th>
+                    <th className="hidden sm:table-cell text-left px-6 py-3 text-muted-foreground font-medium">Destination</th>
                     <th className="text-left px-4 py-3 text-muted-foreground font-medium">Code</th>
-                    <th className="text-left px-4 py-3 text-muted-foreground font-medium">Options</th>
+                    <th className="hidden sm:table-cell text-left px-4 py-3 text-muted-foreground font-medium">Options</th>
                     <th className="text-left px-4 py-3 text-muted-foreground font-medium">Enabled</th>
                     <th className="text-right px-6 py-3 text-muted-foreground font-medium">Actions</th>
                   </tr>
@@ -128,7 +128,7 @@ export function RedirectTable({ items, loading, onEdit, onRefresh }: Props) {
                       </td>
 
                       {/* Destination */}
-                      <td className="px-6 py-4 text-muted-foreground max-w-xs truncate">
+                      <td className="hidden sm:table-cell px-6 py-4 text-muted-foreground max-w-xs truncate">
                         {redirect.destination}
                       </td>
 
@@ -140,7 +140,7 @@ export function RedirectTable({ items, loading, onEdit, onRefresh }: Props) {
                       </td>
 
                       {/* Options */}
-                      <td className="px-4 py-4">
+                      <td className="hidden sm:table-cell px-4 py-4">
                         <div className="flex items-center gap-1.5">
                           {redirect.sslEnabled && (
                             <span title="SSL enabled">

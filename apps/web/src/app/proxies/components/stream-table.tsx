@@ -64,50 +64,52 @@ export function StreamTable({ items, onEdit, onRefresh }: Props) {
   return (
     <>
       <div className="rounded-lg border border-border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-muted/40 border-b border-border text-muted-foreground">
-              <th className="text-left px-4 py-3 font-medium">Name</th>
-              <th className="text-left px-4 py-3 font-medium">Protocol</th>
-              <th className="text-left px-4 py-3 font-medium">Listen</th>
-              <th className="text-left px-4 py-3 font-medium">Forward</th>
-              <th className="text-center px-4 py-3 font-medium">Enabled</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((s) => (
-              <tr key={s.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
-                <td className="px-4 py-3 font-medium">{s.name}</td>
-                <td className="px-4 py-3">
-                  <Badge variant="outline">{PROTOCOL_LABELS[s.protocol] ?? s.protocol}</Badge>
-                </td>
-                <td className="px-4 py-3 font-mono text-xs">:{s.listenPort}</td>
-                <td className="px-4 py-3 font-mono text-xs">{s.forwardHost}:{s.forwardPort}</td>
-                <td className="px-4 py-3 text-center">
-                  {toggling === s.id
-                    ? <Loader2 className="w-4 h-4 animate-spin mx-auto text-muted-foreground" />
-                    : <Switch checked={s.enabled} onCheckedChange={() => handleToggle(s)} />
-                  }
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button size="icon-sm" variant="ghost" onClick={() => onEdit(s)}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      size="icon-sm" variant="ghost"
-                      className="hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => setDeleteTarget(s)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/40 border-b border-border text-muted-foreground">
+                <th className="text-left px-4 py-3 font-medium">Name</th>
+                <th className="hidden sm:table-cell text-left px-4 py-3 font-medium">Protocol</th>
+                <th className="text-left px-4 py-3 font-medium">Listen</th>
+                <th className="hidden sm:table-cell text-left px-4 py-3 font-medium">Forward</th>
+                <th className="text-center px-4 py-3 font-medium">Enabled</th>
+                <th className="px-4 py-3" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((s) => (
+                <tr key={s.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                  <td className="px-4 py-3 font-medium">{s.name}</td>
+                  <td className="hidden sm:table-cell px-4 py-3">
+                    <Badge variant="outline">{PROTOCOL_LABELS[s.protocol] ?? s.protocol}</Badge>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">:{s.listenPort}</td>
+                  <td className="hidden sm:table-cell px-4 py-3 font-mono text-xs">{s.forwardHost}:{s.forwardPort}</td>
+                  <td className="px-4 py-3 text-center">
+                    {toggling === s.id
+                      ? <Loader2 className="w-4 h-4 animate-spin mx-auto text-muted-foreground" />
+                      : <Switch checked={s.enabled} onCheckedChange={() => handleToggle(s)} />
+                    }
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button size="icon-sm" variant="ghost" onClick={() => onEdit(s)}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="icon-sm" variant="ghost"
+                        className="hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleteTarget(s)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>

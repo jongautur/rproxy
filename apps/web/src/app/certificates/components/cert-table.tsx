@@ -123,10 +123,10 @@ export function CertTable({ data, loading, onRefresh, page, onPageChange }: Prop
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-6 py-3 text-muted-foreground font-medium">Domain</th>
-                    <th className="text-left px-4 py-3 text-muted-foreground font-medium">Provider</th>
+                    <th className="hidden sm:table-cell text-left px-4 py-3 text-muted-foreground font-medium">Provider</th>
                     <th className="text-left px-4 py-3 text-muted-foreground font-medium">Status</th>
                     <th className="text-left px-4 py-3 text-muted-foreground font-medium">Expires</th>
-                    <th className="text-left px-4 py-3 text-muted-foreground font-medium">Used By</th>
+                    <th className="hidden sm:table-cell text-left px-4 py-3 text-muted-foreground font-medium">Used By</th>
                     <th className="text-right px-6 py-3 text-muted-foreground font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -147,7 +147,7 @@ export function CertTable({ data, loading, onRefresh, page, onPageChange }: Prop
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-muted-foreground">
+                        <td className="hidden sm:table-cell px-4 py-4 text-muted-foreground">
                           {cert.provider === "LETSENCRYPT" ? "Let's Encrypt" : cert.provider}
                         </td>
                         <td className="px-4 py-4">
@@ -156,7 +156,7 @@ export function CertTable({ data, loading, onRefresh, page, onPageChange }: Prop
                         <td className="px-4 py-4">
                           <ExpiryBadge expiresAt={cert.expiresAt} />
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="hidden sm:table-cell px-4 py-4">
                           {cert.proxyHosts.length > 0 ? (
                             <div className="flex items-center gap-1 text-muted-foreground">
                               <Globe className="w-3 h-3" />
