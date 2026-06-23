@@ -64,8 +64,8 @@ export function AccessListsClient() {
   }
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-8 space-y-6 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-primary" />

@@ -127,7 +127,7 @@ export function SystemClient() {
 
   if (loading) {
     return (
-      <div className="p-8 flex items-center justify-center">
+      <div className="p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -136,9 +136,9 @@ export function SystemClient() {
   const { system, nginx } = data ?? {};
 
   return (
-    <div className="p-8 space-y-8 animate-fade-in">
+    <div className="p-4 md:p-8 space-y-6 md:space-y-8 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Server className="w-6 h-6 text-primary" />
@@ -199,7 +199,7 @@ export function SystemClient() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-5">
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               {(["1 min", "5 min", "15 min"] as const).map((label, i) => {
                 const val = system.loadAverage[i] ?? 0;
                 const cores = system.cpu.cores;

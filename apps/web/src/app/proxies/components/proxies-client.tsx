@@ -118,9 +118,9 @@ export function ProxiesClient() {
   const totalHosts = (proxyData?.total ?? 0) + redirectItems.length + streamItems.length;
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
+    <div className="p-4 md:p-8 space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Globe className="w-6 h-6 text-primary" />
@@ -130,7 +130,7 @@ export function ProxiesClient() {
             {totalHosts} host{totalHosts !== 1 ? "s" : ""} configured
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={handleReloadNginx} disabled={reloading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${reloading ? "animate-spin" : ""}`} />
             Reload Nginx

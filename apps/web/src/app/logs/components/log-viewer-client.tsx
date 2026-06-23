@@ -181,7 +181,7 @@ export function LogViewerClient() {
   }
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in h-full flex flex-col">
+    <div className="p-4 md:p-8 space-y-6 animate-fade-in h-full flex flex-col">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -201,7 +201,7 @@ export function LogViewerClient() {
           <div className="flex flex-wrap items-center gap-3">
             {/* File select */}
             <Select value={selectedFile} onValueChange={setSelectedFile} disabled={files.length === 0}>
-              <SelectTrigger className="w-64">
+              <SelectTrigger className="w-full sm:w-64">
                 <FileText className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
                 <SelectValue placeholder={files.length === 0 ? "No log files found" : "Select log file"} />
               </SelectTrigger>

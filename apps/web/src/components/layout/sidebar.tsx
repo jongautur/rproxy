@@ -4,14 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  Globe,
-  Lock,
-  FileText,
-  Settings,
-  Server,
-  LogOut,
-  ShieldCheck, Activity,
+  LayoutDashboard, Globe, Lock, FileText, Settings,
+  Server, LogOut, ShieldCheck, Activity, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,7 +23,12 @@ const navItems = [
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
@@ -41,11 +40,11 @@ export function Sidebar() {
     router.refresh();
   }
 
-  return (
-    <aside className="w-64 min-h-screen bg-card border-r border-border flex flex-col">
+  const nav = (
+    <>
       {/* Logo */}
-      <div className="p-6 border-b border-border">
-        <Link href="/dashboard" className="flex items-center gap-3">
+      <div className="p-6 border-b border-border flex items-center justify-between">
+        <Link href="/dashboard" className="flex items-center gap-3" onClick={onClose}>
           <Image
             src="/logo.png"
             alt="rproxy logo"
@@ -59,6 +58,15 @@ export function Sidebar() {
             <p className="text-xs text-muted-foreground">Proxy Manager</p>
           </div>
         </Link>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden p-1.5 rounded-lg hover:bg-accent transition-colors"
+            aria-label="Close menu"
+          >
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        )}
       </div>
 
       {/* Nav */}
@@ -69,6 +77,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onClose}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 active
@@ -94,6 +103,25 @@ export function Sidebar() {
           Sign out
         </Button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop: static sidebar */}
+      <aside className="hidden md:flex w-64 min-h-screen bg-card border-r border-border flex-col shrink-0">
+        {nav}
+      </aside>
+
+      {/* Mobile: slide-in drawer */}
+      <aside
+        className={cn(
+          "md:hidden fixed inset-y-0 left-0 z-50 w-64 bg-card border-r border-border flex flex-col transition-transform duration-200 ease-in-out",
+          isOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {nav}
+      </aside>
+    </>
   );
 }

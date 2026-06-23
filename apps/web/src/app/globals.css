@@ -77,3 +77,11 @@
     @apply inline-block w-2 h-2 rounded-full;
   }
 }
+
+  /* iOS momentum scrolling on scrollable areas */
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+

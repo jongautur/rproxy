@@ -47,8 +47,8 @@ export function CertificatesClient() {
   }, [fetchCerts, search]);
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-8 space-y-6 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Lock className="w-6 h-6 text-primary" />
@@ -58,7 +58,7 @@ export function CertificatesClient() {
             {data ? `${data.total} certificate${data.total !== 1 ? "s" : ""}` : "Manage SSL/TLS certificates"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="outline" onClick={() => setUploadOpen(true)}>
             <Upload className="w-4 h-4 mr-2" />
             Upload Certificate

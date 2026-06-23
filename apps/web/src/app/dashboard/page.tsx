@@ -70,7 +70,7 @@ export default async function DashboardPage() {
   const data = await getDashboardData();
 
   return (
-    <div className="p-8 space-y-8 animate-fade-in">
+    <div className="p-4 md:p-8 space-y-6 md:space-y-8 animate-fade-in">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground text-sm mt-1">
