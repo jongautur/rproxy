@@ -186,10 +186,25 @@ export async function checkAndRenewExpiring(): Promise<void> {
       });
 
       await reloadNginx();
+
+      // userId: null — this is the cron path, not a logged-in admin. The
+      // activity UI already renders a null user as "system".
+      await prisma.auditLog.create({
+        data: { userId: null, action: "RENEW_CERT", entity: "Certificate", entityId: cert.id, details: JSON.stringify({ domain: cert.domain }) },
+      });
     } catch (e) {
       await prisma.certificate.update({
         where: { id: cert.id },
         data: { renewError: String(e).slice(0, 1000) },
+      });
+      await prisma.auditLog.create({
+        data: {
+          userId: null,
+          action: "RENEW_CERT",
+          entity: "Certificate",
+          entityId: cert.id,
+          details: JSON.stringify({ domain: cert.domain, error: String(e).slice(0, 500) }),
+        },
       });
       void fireNotification({
         type: "cert_renewal_failed",

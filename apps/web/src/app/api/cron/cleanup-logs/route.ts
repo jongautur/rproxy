@@ -26,6 +26,17 @@ export async function POST(req: NextRequest) {
 
     await pruneOldAuditLogs();
 
+    // userId: null — cron path, not a logged-in admin. The activity UI
+    // already renders a null user as "system".
+    await prisma.auditLog.create({
+      data: {
+        userId: null,
+        action: "DELETE",
+        entity: "Logs",
+        details: JSON.stringify({ maxGb, cleaned: result.exitCode === 0 }),
+      },
+    });
+
     return ok({ cleaned: result.exitCode === 0, output: result.stdout });
   } catch (e) {
     return fromError(e);
