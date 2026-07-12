@@ -10,7 +10,7 @@ const SITES_AVAILABLE = "/etc/nginx/sites-available";
 export type { DeployResult };
 
 async function deployConfig(proxy: ProxyHost): Promise<DeployResult> {
-  const [cert, accessList] = await Promise.all([
+  const [cert, accessList, custom403Setting] = await Promise.all([
     proxy.certificateId
       ? prisma.certificate.findUnique({ where: { id: proxy.certificateId } })
       : null,
@@ -23,9 +23,11 @@ async function deployConfig(proxy: ProxyHost): Promise<DeployResult> {
           },
         })
       : null,
+    prisma.setting.findUnique({ where: { key: "error_403_html" } }),
   ]);
 
-  const config = generateNginxConfig({ proxy, certificate: cert, accessList });
+  const custom403Enabled = !!custom403Setting?.value.trim();
+  const config = generateNginxConfig({ proxy, certificate: cert, accessList, custom403Enabled });
   const filename = domainToFilename(proxy.domain) + ".conf";
 
   const deploy = await deploySiteConfig({ filename, config, enabled: proxy.enabled });

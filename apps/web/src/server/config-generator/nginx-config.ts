@@ -54,7 +54,16 @@ interface GeneratorOptions {
   certificate: Certificate | null;
   accessList?: AccessListOptions | null;
   configDir?: string;
+  // True when a global custom 403 page (Settings → Nginx) is configured —
+  // every generated site gets the same error_page/location pair pointing
+  // at the shared static file, so 403s from a deny/access-list rule show
+  // the admin's page instead of nginx's stock one.
+  custom403Enabled?: boolean;
 }
+
+export const CUSTOM_403_URI = "/_rproxy_403.html";
+export const PAGES_DIR = "/var/lib/rproxy/pages";
+export const CUSTOM_403_FILE = path.join(PAGES_DIR, "_rproxy_403.html");
 
 export function generateNginxConfig(opts: GeneratorOptions): string {
   const { proxy, certificate } = opts;
@@ -175,6 +184,16 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
         lines.push(`    ${trimmed}`);
       }
     });
+    lines.push(``);
+  }
+
+  // ── Custom 403 page (global, Settings → Nginx) ─────────────────────────────
+  if (opts.custom403Enabled) {
+    lines.push(`    error_page 403 ${CUSTOM_403_URI};`);
+    lines.push(`    location = ${CUSTOM_403_URI} {`);
+    lines.push(`        root ${PAGES_DIR};`);
+    lines.push(`        internal;`);
+    lines.push(`    }`);
     lines.push(``);
   }
 

@@ -85,6 +85,20 @@ describe("generateNginxConfig — access list default action", () => {
   });
 });
 
+describe("generateNginxConfig — custom 403 page", () => {
+  it("omits the error_page directive when no custom 403 is configured", () => {
+    const config = generateNginxConfig({ proxy: makeProxy(), certificate: null });
+    expect(config).not.toContain("error_page 403");
+  });
+
+  it("adds error_page + internal location when enabled", () => {
+    const config = generateNginxConfig({ proxy: makeProxy(), certificate: null, custom403Enabled: true });
+    expect(config).toContain("error_page 403 /_rproxy_403.html;");
+    expect(config).toContain("location = /_rproxy_403.html {");
+    expect(config).toContain("internal;");
+  });
+});
+
 describe("generateNginxConfig — custom directive validation", () => {
   it("rejects custom server directives that try to close the server block", () => {
     expect(() =>

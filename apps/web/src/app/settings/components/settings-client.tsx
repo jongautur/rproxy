@@ -3,14 +3,18 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Settings, Users, Key, Download, Database, HardDrive,
-  Plus, Trash2, Loader2, CheckCircle2, ShieldCheck, ShieldOff, User, Bell, Globe, Webhook,
+  Plus, Trash2, Loader2, CheckCircle2, ShieldCheck, ShieldOff, User, Bell, Globe, Webhook, FileWarning,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -19,9 +23,6 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { NotificationsTab } from "./notifications-tab";
@@ -83,14 +84,30 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
   const [logUsed, setLogUsed] = useState<{ usedBytes: number; maxGb: number } | null>(null);
   const [logSaving, setLogSaving] = useState(false);
 
+  // Default (unmatched-domain) nginx page
+  const [defaultPageMode, setDefaultPageMode] = useState<"nginx_default" | "redirect" | "custom_html" | "no_response">("nginx_default");
+  const [defaultPageRedirectUrl, setDefaultPageRedirectUrl] = useState("");
+  const [defaultPageHtml, setDefaultPageHtml] = useState("");
+  const [defaultPageSaving, setDefaultPageSaving] = useState(false);
+
+  // Custom 403 (access-list deny) page
+  const [error403Html, setError403Html] = useState("");
+  const [error403Saving, setError403Saving] = useState(false);
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch("/api/settings");
       const json = await res.json() as { success: boolean; data: SettingsData };
       if (json.success) {
         setData(json.data);
-        const maxGbSetting = json.data.settings.find((s) => s.key === "log_max_gb");
-        if (maxGbSetting) setLogMaxGb(maxGbSetting.value);
+        const find = (key: string) => json.data.settings.find((s) => s.key === key)?.value;
+        const maxGbSetting = find("log_max_gb");
+        if (maxGbSetting) setLogMaxGb(maxGbSetting);
+        const mode = find("default_page_mode");
+        if (mode) setDefaultPageMode(mode as typeof defaultPageMode);
+        setDefaultPageRedirectUrl(find("default_page_redirect_url") ?? "");
+        setDefaultPageHtml(find("default_page_html") ?? "");
+        setError403Html(find("error_403_html") ?? "");
       }
     } catch {
       // VIEWER gets 403 — fine
@@ -182,6 +199,61 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
       toast({ variant: "destructive", title: "Save failed" });
     } finally {
       setLogSaving(false);
+    }
+  }
+
+  async function patchSetting(key: string, value: string): Promise<{ success: boolean; error?: string }> {
+    const res = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    });
+    return res.json() as Promise<{ success: boolean; error?: string }>;
+  }
+
+  async function handleSaveDefaultPage() {
+    if (defaultPageMode === "redirect" && !defaultPageRedirectUrl.trim()) {
+      toast({ variant: "destructive", title: "Redirect URL is required" });
+      return;
+    }
+    setDefaultPageSaving(true);
+    try {
+      // The mode save triggers the actual nginx redeploy (see PATCH
+      // /api/settings) — save the mode-specific field first so it's already
+      // in place by the time that redeploy reads it.
+      if (defaultPageMode === "redirect") {
+        const r = await patchSetting("default_page_redirect_url", defaultPageRedirectUrl.trim());
+        if (!r.success) { toast({ variant: "destructive", title: "Save failed", description: r.error }); return; }
+      } else if (defaultPageMode === "custom_html") {
+        const r = await patchSetting("default_page_html", defaultPageHtml);
+        if (!r.success) { toast({ variant: "destructive", title: "Save failed", description: r.error }); return; }
+      }
+      const modeResult = await patchSetting("default_page_mode", defaultPageMode);
+      if (modeResult.success) {
+        toast({ title: "Default page saved" });
+      } else {
+        toast({ variant: "destructive", title: "Save failed", description: modeResult.error });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Save failed" });
+    } finally {
+      setDefaultPageSaving(false);
+    }
+  }
+
+  async function handleSaveError403() {
+    setError403Saving(true);
+    try {
+      const result = await patchSetting("error_403_html", error403Html);
+      if (result.success) {
+        toast({ title: "403 page saved" });
+      } else {
+        toast({ variant: "destructive", title: "Save failed", description: result.error });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Save failed" });
+    } finally {
+      setError403Saving(false);
     }
   }
 
@@ -310,6 +382,10 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
           <TabsTrigger value="notifications" className="gap-2">
             <Bell className="w-4 h-4" />
             Notifications
+          </TabsTrigger>
+          <TabsTrigger value="nginx" className="gap-2">
+            <Globe className="w-4 h-4" />
+            Nginx
           </TabsTrigger>
           {!loading && data && (
             <TabsTrigger value="users" className="gap-2">
@@ -513,6 +589,94 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
 
         <TabsContent value="notifications">
           <NotificationsTab />
+        </TabsContent>
+
+        <TabsContent value="nginx" className="space-y-6">
+          <Card>
+            <CardHeader className="pb-3 pt-4 px-5">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Globe className="w-4 h-4" />
+                Default Page
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-5 space-y-4">
+              <p className="text-xs text-muted-foreground">
+                What a visitor sees when their request doesn&apos;t match any configured proxy or redirect host — e.g. hitting this server&apos;s raw IP, or an old/typo&apos;d domain.
+              </p>
+              <div className="space-y-1.5">
+                <Label>Mode</Label>
+                <Select value={defaultPageMode} onValueChange={(v) => setDefaultPageMode(v as typeof defaultPageMode)}>
+                  <SelectTrigger className="w-64">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nginx_default">Default nginx page</SelectItem>
+                    <SelectItem value="redirect">Redirect</SelectItem>
+                    <SelectItem value="custom_html">Custom HTML</SelectItem>
+                    <SelectItem value="no_response">No response</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {defaultPageMode === "redirect" && (
+                <div className="space-y-1.5">
+                  <Label>Redirect URL</Label>
+                  <Input
+                    placeholder="https://example.com"
+                    value={defaultPageRedirectUrl}
+                    onChange={(e) => setDefaultPageRedirectUrl(e.target.value)}
+                  />
+                </div>
+              )}
+
+              {defaultPageMode === "custom_html" && (
+                <div className="space-y-1.5">
+                  <Label>HTML</Label>
+                  <Textarea
+                    className="font-mono text-xs min-h-40"
+                    placeholder="<!DOCTYPE html>..."
+                    value={defaultPageHtml}
+                    onChange={(e) => setDefaultPageHtml(e.target.value)}
+                  />
+                </div>
+              )}
+
+              {defaultPageMode === "no_response" && (
+                <p className="text-xs text-muted-foreground">
+                  The connection is closed immediately with no response — nginx&apos;s <code>return 444</code>.
+                </p>
+              )}
+
+              <Button onClick={handleSaveDefaultPage} disabled={defaultPageSaving}>
+                {defaultPageSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                Save
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3 pt-4 px-5">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileWarning className="w-4 h-4" />
+                Custom 403 Page
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-5 space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Shown instead of nginx&apos;s stock 403 page whenever an access list denies a request. Leave blank to use nginx&apos;s default. Applies to every proxy host.
+              </p>
+              <Textarea
+                className="font-mono text-xs min-h-40"
+                placeholder="<!DOCTYPE html>... (blank = nginx default)"
+                value={error403Html}
+                onChange={(e) => setError403Html(e.target.value)}
+              />
+              <Button onClick={handleSaveError403} disabled={error403Saving}>
+                {error403Saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                Save
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Users tab — admin only */}

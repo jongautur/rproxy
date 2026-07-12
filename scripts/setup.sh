@@ -166,8 +166,14 @@ info "Configuring nginx..."
 as_root mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 [[ -f /etc/nginx/sites-enabled/default ]] && as_root rm -f /etc/nginx/sites-enabled/default
 
-# Catch-all server block: serves ACME HTTP challenges; proxy hosts add their own server_name blocks
-as_root tee /etc/nginx/sites-available/acme-challenge > /dev/null << 'NGINX'
+# Catch-all server block: serves ACME HTTP challenges and whatever the admin
+# has configured under Settings → Nginx → Default Page (nginx welcome page /
+# redirect / custom HTML / no response — see default-page.service.ts). This
+# bootstrap writes the "no response" shape as a safe pre-first-login default;
+# the app manages this exact file (same filename) from then on, so there is
+# only ever one `default_server` for port 80. Do not also create a
+# differently-named default_server site — nginx errors on a second one.
+as_root tee /etc/nginx/sites-available/_default.conf > /dev/null << 'NGINX'
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
@@ -183,7 +189,8 @@ server {
     }
 }
 NGINX
-as_root ln -sf /etc/nginx/sites-available/acme-challenge /etc/nginx/sites-enabled/acme-challenge
+as_root ln -sf /etc/nginx/sites-available/_default.conf /etc/nginx/sites-enabled/_default.conf
+as_root rm -f /etc/nginx/sites-available/acme-challenge /etc/nginx/sites-enabled/acme-challenge
 
 as_root mkdir -p /etc/nginx/stream.d
 as_root systemctl enable nginx
