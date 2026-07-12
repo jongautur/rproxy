@@ -29,8 +29,15 @@ const MAX_BODY_BYTES = 1_048_576;
 function hasValidOrigin(req: NextRequest): boolean {
   const source = req.headers.get("origin") ?? req.headers.get("referer");
   if (!source) return false;
+  // Compare against the request's actual Host header, not req.nextUrl.origin —
+  // for a self-hosted `next start` server, nextUrl.origin reflects the
+  // hostname the server thinks it's bound to ("localhost"), not the Host
+  // header the client actually sent, so it never matches when the app is
+  // reached via a LAN IP or a real domain name.
+  const host = req.headers.get("host");
+  if (!host) return false;
   try {
-    return new URL(source).origin === req.nextUrl.origin;
+    return new URL(source).host === host;
   } catch {
     return false;
   }
