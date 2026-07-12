@@ -3,6 +3,8 @@ import path from "path";
 import { prisma } from "@/lib/prisma";
 import { nginxHelper, hashPasswordApr1 } from "@/server/system/exec";
 import { redeployProxy } from "@/server/services/proxy.service";
+import { redeployRedirect } from "@/server/services/redirect.service";
+import { redeployStream } from "@/server/services/stream.service";
 
 const STAGING_DIR = "/var/lib/rproxy/staging";
 
@@ -21,6 +23,8 @@ export async function listAccessLists() {
       authUsers: { select: { id: true, username: true } },
       ipRules: { orderBy: { sortOrder: "asc" } },
       proxyHosts: { select: { id: true, domain: true } },
+      redirectHosts: { select: { id: true, sourceDomain: true } },
+      streamHosts: { select: { id: true, name: true } },
     },
     orderBy: { name: "asc" },
   });
@@ -33,6 +37,8 @@ export async function getAccessList(id: string) {
       authUsers: { select: { id: true, username: true } },
       ipRules: { orderBy: { sortOrder: "asc" } },
       proxyHosts: { select: { id: true, domain: true } },
+      redirectHosts: { select: { id: true, sourceDomain: true } },
+      streamHosts: { select: { id: true, name: true } },
     },
   });
 }
@@ -88,6 +94,8 @@ export async function createAccessList(data: {
       authUsers: { select: { id: true, username: true } },
       ipRules: { orderBy: { sortOrder: "asc" } },
       proxyHosts: { select: { id: true, domain: true } },
+      redirectHosts: { select: { id: true, sourceDomain: true } },
+      streamHosts: { select: { id: true, name: true } },
     },
   });
 
@@ -153,6 +161,8 @@ export async function updateAccessList(
       authUsers: { select: { id: true, username: true } },
       ipRules: { orderBy: { sortOrder: "asc" } },
       proxyHosts: { select: { id: true, domain: true } },
+      redirectHosts: { select: { id: true, sourceDomain: true } },
+      streamHosts: { select: { id: true, name: true } },
     },
   });
 
@@ -161,20 +171,33 @@ export async function updateAccessList(
   for (const { id: proxyId } of updated.proxyHosts) {
     await redeployProxy(proxyId).catch(() => {});
   }
+  for (const { id: redirectId } of updated.redirectHosts) {
+    await redeployRedirect(redirectId).catch(() => {});
+  }
+  for (const { id: streamId } of updated.streamHosts) {
+    await redeployStream(streamId).catch(() => {});
+  }
 
   return updated;
 }
 
 export async function deleteAccessList(id: string): Promise<void> {
-  const affected = await prisma.proxyHost.findMany({
-    where: { accessListId: id },
-    select: { id: true },
-  });
+  const [affectedProxies, affectedRedirects, affectedStreams] = await Promise.all([
+    prisma.proxyHost.findMany({ where: { accessListId: id }, select: { id: true } }),
+    prisma.redirectHost.findMany({ where: { accessListId: id }, select: { id: true } }),
+    prisma.streamHost.findMany({ where: { accessListId: id }, select: { id: true } }),
+  ]);
 
   await prisma.accessList.delete({ where: { id } });
   await nginxHelper("remove-htpasswd", id).catch(() => {});
 
-  for (const { id: proxyId } of affected) {
+  for (const { id: proxyId } of affectedProxies) {
     await redeployProxy(proxyId).catch(() => {});
+  }
+  for (const { id: redirectId } of affectedRedirects) {
+    await redeployRedirect(redirectId).catch(() => {});
+  }
+  for (const { id: streamId } of affectedStreams) {
+    await redeployStream(streamId).catch(() => {});
   }
 }

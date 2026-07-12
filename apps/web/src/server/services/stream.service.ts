@@ -7,8 +7,22 @@ export type { DeployResult };
 
 async function deploy(host: StreamHost): Promise<DeployResult> {
   const filename = streamToFilename(host.name);
-  const config = generateStreamConfig(host);
+  const accessList = host.accessListId
+    ? await prisma.accessList.findUnique({
+        where: { id: host.accessListId },
+        include: {
+          authUsers: { select: { id: true, username: true } },
+          ipRules: { orderBy: { sortOrder: "asc" } },
+        },
+      })
+    : null;
+  const config = generateStreamConfig(host, accessList);
   return deployStreamConfig({ filename, config });
+}
+
+export async function redeployStream(id: string): Promise<void> {
+  const stream = await prisma.streamHost.findUnique({ where: { id } });
+  if (stream) await deploy(stream).catch(() => {});
 }
 
 async function applyDeployStatus(id: string, deploy: DeployResult): Promise<StreamHost> {
@@ -21,8 +35,17 @@ async function applyDeployStatus(id: string, deploy: DeployResult): Promise<Stre
   });
 }
 
+interface StreamFormData {
+  name: string;
+  protocol: string;
+  listenPort: number;
+  forwardHost: string;
+  forwardPort: number;
+  accessListId?: string | null;
+}
+
 export async function createStream(
-  data: { name: string; protocol: string; listenPort: number; forwardHost: string; forwardPort: number },
+  data: StreamFormData,
   userId: string
 ): Promise<{ stream: StreamHost; deploy: DeployResult }> {
   const filename = streamToFilename(data.name);
@@ -43,7 +66,7 @@ export async function createStream(
 
 export async function updateStream(
   id: string,
-  data: Partial<{ name: string; protocol: string; listenPort: number; forwardHost: string; forwardPort: number }>,
+  data: Partial<StreamFormData>,
   userId: string
 ): Promise<{ stream: StreamHost; deploy: DeployResult }> {
   const existing = await prisma.streamHost.findUniqueOrThrow({ where: { id } });

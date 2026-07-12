@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import type { StreamHost } from "@prisma/client";
+import type { AccessListWithRelations } from "@/types/access-list";
 
 interface Props {
   open: boolean;
@@ -22,28 +23,49 @@ interface Props {
   onSaved: () => void;
 }
 
-type FormState = { name: string; protocol: "TCP" | "UDP" | "TCP_UDP"; listenPort: string; forwardHost: string; forwardPort: string };
-const EMPTY: FormState = { name: "", protocol: "TCP", listenPort: "", forwardHost: "", forwardPort: "" };
+type FormState = {
+  name: string; protocol: "TCP" | "UDP" | "TCP_UDP"; listenPort: string; forwardHost: string; forwardPort: string;
+  accessListId: string | null;
+};
+const EMPTY: FormState = { name: "", protocol: "TCP", listenPort: "", forwardHost: "", forwardPort: "", accessListId: null };
 
 export function StreamFormDialog({ open, onOpenChange, editingStream, onSaved }: Props) {
   const { toast } = useToast();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [accessLists, setAccessLists] = useState<Pick<AccessListWithRelations, "id" | "name" | "authEnabled" | "ipRules">[]>([]);
+
+  function populateFromStream(s: StreamHost) {
+    setForm({
+      name: s.name,
+      protocol: s.protocol as FormState["protocol"],
+      listenPort: String(s.listenPort),
+      forwardHost: s.forwardHost,
+      forwardPort: String(s.forwardPort),
+      accessListId: s.accessListId ?? null,
+    });
+  }
 
   useEffect(() => {
-    if (open) {
-      if (editingStream) {
-        setForm({
-          name: editingStream.name,
-          protocol: editingStream.protocol as FormState["protocol"],
-          listenPort: String(editingStream.listenPort),
-          forwardHost: editingStream.forwardHost,
-          forwardPort: String(editingStream.forwardPort),
-        });
-      } else {
-        setForm(EMPTY);
-      }
+    if (!open) return;
+    if (editingStream) {
+      // Render what the table handed us immediately, then reconcile against
+      // a fresh fetch — this form submits every field on save, so a stale
+      // row (e.g. changed from another tab) would silently overwrite
+      // whatever changed elsewhere.
+      populateFromStream(editingStream);
+      fetch(`/api/streams/${editingStream.id}`)
+        .then((r) => r.json() as Promise<{ success: boolean; data: StreamHost }>)
+        .then((j) => { if (j.success) populateFromStream(j.data); })
+        .catch(() => {});
+    } else {
+      setForm(EMPTY);
     }
+
+    fetch("/api/access-lists")
+      .then((r) => r.json() as Promise<{ success: boolean; data: { lists: typeof accessLists } }>)
+      .then((j) => { if (j.success) setAccessLists(j.data.lists); })
+      .catch(() => {});
   }, [open, editingStream]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -56,6 +78,7 @@ export function StreamFormDialog({ open, onOpenChange, editingStream, onSaved }:
         listenPort: parseInt(form.listenPort),
         forwardHost: form.forwardHost,
         forwardPort: parseInt(form.forwardPort),
+        accessListId: form.accessListId,
       };
       const url = editingStream ? `/api/streams/${editingStream.id}` : "/api/streams";
       const method = editingStream ? "PATCH" : "POST";
@@ -115,6 +138,24 @@ export function StreamFormDialog({ open, onOpenChange, editingStream, onSaved }:
               <Label>Forward port</Label>
               <Input type="number" min={1} max={65535} placeholder="5432" value={form.forwardPort} onChange={(e) => set("forwardPort")(e.target.value)} required />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Access List</Label>
+            <p className="text-xs text-muted-foreground">Restrict by IP — Basic Auth doesn&apos;t apply to raw TCP/UDP</p>
+            <select
+              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              value={form.accessListId ?? ""}
+              onChange={(e) => setForm((p) => ({ ...p, accessListId: e.target.value || null }))}
+            >
+              <option value="">No restriction</option>
+              {accessLists.map((al) => (
+                <option key={al.id} value={al.id}>
+                  {al.name}
+                  {al.ipRules.length > 0 ? ` · ${al.ipRules.length} IP rule${al.ipRules.length !== 1 ? "s" : ""}` : ""}
+                </option>
+              ))}
+            </select>
           </div>
 
           <DialogFooter>

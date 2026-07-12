@@ -3,6 +3,7 @@ import { requireSession, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createStream } from "@/server/services/stream.service";
 import { ok, badRequest, conflict, fromError } from "@/lib/api-response";
+import { checkSelfLoopPorts } from "@/lib/validation";
 import { z } from "zod";
 
 const schema = z.object({
@@ -11,6 +12,7 @@ const schema = z.object({
   listenPort: z.number().int().min(1).max(65535),
   forwardHost: z.string().min(1).max(253),
   forwardPort: z.number().int().min(1).max(65535),
+  accessListId: z.string().cuid().nullable().optional(),
 });
 
 export async function GET() {
@@ -28,6 +30,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json() as unknown;
     const parsed = schema.safeParse(body);
     if (!parsed.success) return badRequest(parsed.error.errors[0]?.message ?? "Invalid input");
+
+    const loopError = checkSelfLoopPorts([parsed.data.listenPort]);
+    if (loopError) return badRequest(loopError);
 
     const existing = await prisma.streamHost.findUnique({ where: { name: parsed.data.name } });
     if (existing) return conflict("A stream host with that name already exists");

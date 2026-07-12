@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireSession, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { proxyHostSchema } from "@/lib/validation";
+import { proxyHostSchema, checkSelfLoopPorts } from "@/lib/validation";
 import { createProxy } from "@/server/services/proxy.service";
 import { ok, created, badRequest, forbidden, fromError } from "@/lib/api-response";
 
@@ -59,6 +59,9 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return badRequest("Validation failed", parsed.error.flatten().fieldErrors);
     }
+
+    const loopError = checkSelfLoopPorts([parsed.data.listenPort, parsed.data.httpsPort]);
+    if (loopError) return badRequest(loopError);
 
     const existing = await prisma.proxyHost.findUnique({
       where: { domain: parsed.data.domain },

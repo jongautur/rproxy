@@ -88,6 +88,7 @@ describe.skipIf(!nginxAvailable)("nginx config integration", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       certificateId: null,
+      accessListId: null,
     } as RedirectHost;
 
     const config = generateRedirectConfig({ redirect, certificate: null });

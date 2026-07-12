@@ -10,11 +10,22 @@ const SITES_AVAILABLE = "/etc/nginx/sites-available";
 export type { DeployResult };
 
 async function deployRedirectConfig(redirect: RedirectHost): Promise<DeployResult> {
-  const certificate = redirect.certificateId
-    ? await prisma.certificate.findUnique({ where: { id: redirect.certificateId } })
-    : null;
+  const [certificate, accessList] = await Promise.all([
+    redirect.certificateId
+      ? prisma.certificate.findUnique({ where: { id: redirect.certificateId } })
+      : null,
+    redirect.accessListId
+      ? prisma.accessList.findUnique({
+          where: { id: redirect.accessListId },
+          include: {
+            authUsers: { select: { id: true, username: true } },
+            ipRules: { orderBy: { sortOrder: "asc" } },
+          },
+        })
+      : null,
+  ]);
 
-  const config = generateRedirectConfig({ redirect, certificate });
+  const config = generateRedirectConfig({ redirect, certificate, accessList });
   const filename = domainToRedirectFilename(redirect.sourceDomain) + ".conf";
 
   const deploy = await deploySiteConfig({ filename, config, enabled: redirect.enabled });
@@ -34,6 +45,11 @@ async function removeRedirectConfig(redirect: RedirectHost): Promise<DeployResul
   return removeSiteConfig(filename);
 }
 
+export async function redeployRedirect(id: string): Promise<void> {
+  const redirect = await prisma.redirectHost.findUnique({ where: { id } });
+  if (redirect) await deployRedirectConfig(redirect).catch(() => {});
+}
+
 export async function createRedirect(
   data: RedirectHostFormData,
   userId: string
@@ -46,6 +62,7 @@ export async function createRedirect(
       preservePath: data.preservePath,
       sslEnabled: data.sslEnabled,
       certificateId: data.certificateId ?? null,
+      accessListId: data.accessListId ?? null,
       enabled: true,
     },
   });

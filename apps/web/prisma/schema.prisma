@@ -98,6 +98,8 @@ model RedirectHost {
   configPath    String?      @map("config_path")
   certificate   Certificate? @relation(fields: [certificateId], references: [id], onDelete: SetNull)
   certificateId String?      @map("certificate_id")
+  accessList    AccessList?  @relation(fields: [accessListId], references: [id], onDelete: SetNull)
+  accessListId  String?      @map("access_list_id")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
@@ -269,9 +271,11 @@ model AccessList {
   // the listed addresses, allow everyone else).
   defaultAction String @default("deny") @map("default_action")
 
-  authUsers  AccessListUser[]
-  ipRules    AccessListIpRule[]
-  proxyHosts ProxyHost[]
+  authUsers    AccessListUser[]
+  ipRules      AccessListIpRule[]
+  proxyHosts   ProxyHost[]
+  redirectHosts RedirectHost[]
+  streamHosts   StreamHost[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -316,6 +320,9 @@ model StreamHost {
   forwardPort Int     @map("forward_port")
   enabled     Boolean @default(true)
   configPath  String? @map("config_path")
+
+  accessList   AccessList? @relation(fields: [accessListId], references: [id], onDelete: SetNull)
+  accessListId String?     @map("access_list_id")
 
   status          ProxyStatus @default(ACTIVE)
   lastDeployError String?     @map("last_deploy_error")

@@ -34,6 +34,39 @@ export const forwardHostSchema = z
     "Must be a valid hostname, IP address, or localhost"
   );
 
+// ── Self-loop guard ───────────────────────────────────────────────────────────
+// The app itself listens on one port (see NEXTAUTH_URL / start-app.sh). If a
+// proxy or stream host's own listen port matches that, nginx can never bind
+// it — the exact failure mode from the `rproxy.local` incident, where nginx
+// silently stopped reloading for every site because one broken listener
+// collided with the app's own port. Forwarding TO the app's port (e.g.
+// fronting the rproxy GUI itself with a real domain + TLS) is fine and
+// common — only the *listen* side is a hard conflict.
+function getAppPort(): number {
+  try {
+    const url = new URL(process.env.NEXTAUTH_URL ?? "http://localhost:81");
+    return url.port ? Number(url.port) : (url.protocol === "https:" ? 443 : 80);
+  } catch {
+    return 81;
+  }
+}
+
+export function isAppOwnPort(port: number): boolean {
+  return port === getAppPort();
+}
+
+export const APP_PORT_MESSAGE = "This port is already used by the rproxy app itself — nginx cannot also bind it. Choose a different port, or use this port as a forward target instead (e.g. to front the app's own GUI).";
+
+// Called explicitly by route handlers (not wired via .superRefine, which
+// would turn these schemas into ZodEffects and break the `.partial()` calls
+// PATCH routes rely on for partial updates).
+export function checkSelfLoopPorts(ports: (number | undefined)[]): string | null {
+  for (const port of ports) {
+    if (port !== undefined && isAppOwnPort(port)) return APP_PORT_MESSAGE;
+  }
+  return null;
+}
+
 // ── Proxy host form ───────────────────────────────────────────────────────────
 export const proxyHostSchema = z.object({
   domain: domainSchema,
@@ -60,7 +93,6 @@ export const proxyHostSchema = z.object({
   accessListId: z.string().cuid().nullable().optional(),
 });
 
-
 // ── Redirect host form ────────────────────────────────────────────────────────
 export const redirectHostSchema = z.object({
   sourceDomain: domainSchema,
@@ -69,6 +101,7 @@ export const redirectHostSchema = z.object({
   preservePath: z.boolean().default(true),
   sslEnabled: z.boolean().default(false),
   certificateId: z.string().cuid().optional(),
+  accessListId: z.string().cuid().nullable().optional(),
 });
 
 // ── Certificate form ──────────────────────────────────────────────────────────

@@ -1,4 +1,6 @@
 import type { RedirectHost, Certificate } from "@prisma/client";
+import { sanitizeNginxValue } from "@/lib/validation";
+import { renderIpRuleLines, type AccessListOptions } from "./access-list-render";
 
 export function domainToRedirectFilename(domain: string): string {
   return `redirect-${domain.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
@@ -7,9 +9,24 @@ export function domainToRedirectFilename(domain: string): string {
 interface GenerateRedirectConfigOptions {
   redirect: RedirectHost;
   certificate: Certificate | null;
+  accessList?: AccessListOptions | null;
 }
 
-export function generateRedirectConfig({ redirect, certificate }: GenerateRedirectConfigOptions): string {
+// Access control for a redirect gates the destination redirect itself — an
+// unauthorized visitor gets 403 instead of the 301/302, rather than the
+// redirect firing regardless of who's asking.
+function accessControlLines(al: AccessListOptions, indent: string): string[] {
+  const lines: string[] = [];
+  if (al.authEnabled && al.authUsers.length > 0) {
+    const realm = sanitizeNginxValue(al.authRealm || "Restricted");
+    lines.push(`${indent}auth_basic "${realm}";`);
+    lines.push(`${indent}auth_basic_user_file /etc/nginx/access-lists/${al.id}.htpasswd;`);
+  }
+  lines.push(...renderIpRuleLines(al, indent));
+  return lines;
+}
+
+export function generateRedirectConfig({ redirect, certificate, accessList }: GenerateRedirectConfigOptions): string {
   const dest = redirect.preservePath
     ? `${redirect.destination}$request_uri`
     : redirect.destination;
@@ -45,6 +62,10 @@ export function generateRedirectConfig({ redirect, certificate }: GenerateRedire
     lines.push(`    ssl_protocols TLSv1.2 TLSv1.3;`);
     lines.push(`    ssl_ciphers HIGH:!aNULL:!MD5;`);
     lines.push(``);
+    if (accessList) {
+      lines.push(...accessControlLines(accessList, "    "));
+      lines.push(``);
+    }
     lines.push(`    return ${redirect.redirectCode} ${dest};`);
     lines.push(`}`);
   } else {
@@ -59,6 +80,9 @@ export function generateRedirectConfig({ redirect, certificate }: GenerateRedire
     lines.push(`    }`);
     lines.push(``);
     lines.push(`    location / {`);
+    if (accessList) {
+      lines.push(...accessControlLines(accessList, "        "));
+    }
     lines.push(`        return ${redirect.redirectCode} ${dest};`);
     lines.push(`    }`);
     lines.push(`}`);

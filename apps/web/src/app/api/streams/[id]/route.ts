@@ -1,7 +1,9 @@
 import { type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requireSession } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { updateStream, deleteStream, toggleStream } from "@/server/services/stream.service";
-import { ok, badRequest, fromError } from "@/lib/api-response";
+import { ok, badRequest, notFound, fromError } from "@/lib/api-response";
+import { checkSelfLoopPorts } from "@/lib/validation";
 import { z } from "zod";
 
 const patchSchema = z.object({
@@ -10,7 +12,18 @@ const patchSchema = z.object({
   listenPort: z.number().int().min(1).max(65535).optional(),
   forwardHost: z.string().min(1).max(253).optional(),
   forwardPort: z.number().int().min(1).max(65535).optional(),
+  accessListId: z.string().cuid().nullable().optional(),
 });
+
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    await requireSession();
+    const { id } = await params;
+    const stream = await prisma.streamHost.findUnique({ where: { id } });
+    if (!stream) return notFound("Stream not found");
+    return ok(stream);
+  } catch (e) { return fromError(e); }
+}
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -25,6 +38,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) return badRequest(parsed.error.errors[0]?.message ?? "Invalid input");
+
+    const loopError = checkSelfLoopPorts([parsed.data.listenPort]);
+    if (loopError) return badRequest(loopError);
+
     const { stream, deploy } = await updateStream(id, parsed.data, session.id);
     return ok({ stream, nginxTest: deploy });
   } catch (e) { return fromError(e); }

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import type { RedirectHostWithCert } from "@/types/redirect";
+import type { AccessListWithRelations } from "@/types/access-list";
 
 interface Certificate { id: string; domain: string; status: string }
 
@@ -31,25 +32,40 @@ const EMPTY = {
   preservePath: true,
   sslEnabled: false,
   certificateId: "",
+  accessListId: null as string | null,
 };
 
 export function RedirectFormDialog({ open, onOpenChange, redirect, onSaved }: Props) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [certs, setCerts] = useState<Certificate[]>([]);
+  const [accessLists, setAccessLists] = useState<Pick<AccessListWithRelations, "id" | "name" | "authEnabled" | "ipRules">[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
+
+  function populateFromRedirect(r: RedirectHostWithCert) {
+    setForm({
+      sourceDomain: r.sourceDomain,
+      destination: r.destination,
+      redirectCode: r.redirectCode as 301 | 302,
+      preservePath: r.preservePath,
+      sslEnabled: r.sslEnabled,
+      certificateId: r.certificateId ?? "",
+      accessListId: r.accessListId ?? null,
+    });
+  }
 
   useEffect(() => {
     if (!open) return;
     if (redirect) {
-      setForm({
-        sourceDomain: redirect.sourceDomain,
-        destination: redirect.destination,
-        redirectCode: redirect.redirectCode as 301 | 302,
-        preservePath: redirect.preservePath,
-        sslEnabled: redirect.sslEnabled,
-        certificateId: redirect.certificateId ?? "",
-      });
+      // Render the row the table handed us immediately, then reconcile
+      // against a fresh fetch — the table's row can be stale (e.g. changed
+      // from another tab/dialog), and this form submits every field on
+      // save, so stale data would silently overwrite whatever changed.
+      populateFromRedirect(redirect);
+      fetch(`/api/redirects/${redirect.id}`)
+        .then((r) => r.json() as Promise<{ success: boolean; data: RedirectHostWithCert }>)
+        .then((j) => { if (j.success) populateFromRedirect(j.data); })
+        .catch(() => {});
     } else {
       setForm({ ...EMPTY });
     }
@@ -60,6 +76,11 @@ export function RedirectFormDialog({ open, onOpenChange, redirect, onSaved }: Pr
     fetch("/api/certificates")
       .then((r) => r.json() as Promise<{ success: boolean; data: { items: Certificate[] } }>)
       .then((j) => { if (j.success) setCerts(j.data.items.filter((c) => c.status === "ACTIVE")); })
+      .catch(() => {});
+
+    fetch("/api/access-lists")
+      .then((r) => r.json() as Promise<{ success: boolean; data: { lists: typeof accessLists } }>)
+      .then((j) => { if (j.success) setAccessLists(j.data.lists); })
       .catch(() => {});
   }, [open]);
 
@@ -198,6 +219,26 @@ export function RedirectFormDialog({ open, onOpenChange, redirect, onSaved }: Pr
               </Select>
             </div>
           )}
+
+          {/* Access List */}
+          <div className="space-y-1.5">
+            <Label>Access List</Label>
+            <p className="text-xs text-muted-foreground">Restrict who can be redirected, by IP or Basic Auth</p>
+            <select
+              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              value={form.accessListId ?? ""}
+              onChange={(e) => set("accessListId", e.target.value || null)}
+            >
+              <option value="">No restriction</option>
+              {accessLists.map((al) => (
+                <option key={al.id} value={al.id}>
+                  {al.name}
+                  {al.authEnabled ? " (Basic Auth)" : ""}
+                  {al.ipRules.length > 0 ? ` · ${al.ipRules.length} IP rule${al.ipRules.length !== 1 ? "s" : ""}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

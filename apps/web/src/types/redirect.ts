@@ -7,6 +7,7 @@ export interface RedirectHostFormData {
   preservePath: boolean;
   sslEnabled: boolean;
   certificateId?: string;
+  accessListId?: string | null;
 }
 
 export interface RedirectHostWithCert extends RedirectHost {

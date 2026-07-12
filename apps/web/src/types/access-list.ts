@@ -19,6 +19,8 @@ export interface AccessListWithRelations {
   authUsers: AccessListUser[];
   ipRules: AccessListIpRule[];
   proxyHosts: { id: string; domain: string }[];
+  redirectHosts: { id: string; sourceDomain: string }[];
+  streamHosts: { id: string; name: string }[];
   createdAt: string;
   updatedAt: string;
 }
