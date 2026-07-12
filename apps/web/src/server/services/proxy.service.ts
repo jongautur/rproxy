@@ -1,23 +1,13 @@
-import { writeFile, unlink, mkdir } from "fs/promises";
 import path from "path";
 import { prisma } from "@/lib/prisma";
 import { generateNginxConfig, domainToFilename } from "@/server/config-generator/nginx-config";
-import { testNginxConfig, reloadNginx } from "@/server/system/nginx";
-import { nginxHelper } from "@/server/system/exec";
+import { deploySiteConfig, removeSiteConfig, setSiteEnabled, type DeployResult } from "@/server/services/nginx-deploy.service";
 import type { ProxyHostFormData } from "@/types/proxy";
 import type { ProxyHost } from "@prisma/client";
 
-const STAGING_DIR = "/var/lib/rproxy/staging";
 const SITES_AVAILABLE = "/etc/nginx/sites-available";
 
-async function ensureStagingDir(): Promise<void> {
-  await mkdir(STAGING_DIR, { recursive: true });
-}
-
-export interface DeployResult {
-  success: boolean;
-  output: string;
-}
+export type { DeployResult };
 
 async function deployConfig(proxy: ProxyHost): Promise<DeployResult> {
   const [cert, accessList] = await Promise.all([
@@ -38,52 +28,22 @@ async function deployConfig(proxy: ProxyHost): Promise<DeployResult> {
   const config = generateNginxConfig({ proxy, certificate: cert, accessList });
   const filename = domainToFilename(proxy.domain) + ".conf";
 
-  await ensureStagingDir();
-  const stagingPath = path.join(STAGING_DIR, filename);
+  const deploy = await deploySiteConfig({ filename, config, enabled: proxy.enabled });
 
-  // 1. Write to staging (writable by app user)
-  await writeFile(stagingPath, config, "utf-8");
-
-  // 2. Copy to sites-available via helper
-  const destPath = path.join(SITES_AVAILABLE, filename);
-  const copyResult = await nginxHelper("deploy", filename);
-  if (copyResult.exitCode !== 0) {
-    await unlink(stagingPath).catch(() => {});
-    return { success: false, output: `Failed to deploy config: ${copyResult.stderr || copyResult.stdout}` };
+  // Only record the config as live once nginx actually accepted it.
+  if (deploy.success) {
+    await prisma.proxyHost.update({
+      where: { id: proxy.id },
+      data: { configPath: path.join(SITES_AVAILABLE, filename) },
+    });
   }
 
-  // 3. Test nginx config
-  const testResult = await testNginxConfig();
-  if (!testResult.success) {
-    // Rollback: remove the bad config
-    await nginxHelper("remove", filename);
-    await unlink(stagingPath).catch(() => {});
-    return { success: false, output: `Config test failed:\n${testResult.output}` };
-  }
-
-  // 4. Enable site (symlink)
-  if (proxy.enabled) {
-    await nginxHelper("enable", filename);
-  }
-
-  // 5. Reload nginx
-  const reloadResult = await reloadNginx();
-
-  await unlink(stagingPath).catch(() => {});
-
-  // 6. Update config path in DB
-  await prisma.proxyHost.update({
-    where: { id: proxy.id },
-    data: { configPath: destPath },
-  });
-
-  return reloadResult;
+  return deploy;
 }
 
 async function removeConfig(proxy: ProxyHost): Promise<void> {
   const filename = domainToFilename(proxy.domain) + ".conf";
-  await nginxHelper("remove", filename);
-  await reloadNginx();
+  await removeSiteConfig(filename);
 }
 
 export async function redeployProxy(id: string): Promise<void> {
@@ -201,14 +161,7 @@ export async function toggleProxy(
   });
 
   const filename = domainToFilename(proxy.domain) + ".conf";
-
-  if (enabled) {
-    await nginxHelper("enable", filename);
-  } else {
-    await nginxHelper("disable", filename);
-  }
-
-  const deploy = await reloadNginx();
+  const deploy = await setSiteEnabled(filename, enabled);
 
   await prisma.auditLog.create({
     data: {

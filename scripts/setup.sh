@@ -190,9 +190,20 @@ as_root systemctl enable nginx
 as_root nginx -t && as_root systemctl reload nginx
 success "Nginx configured"
 
-# ── 9. Sudoers ────────────────────────────────────────────────────────────────
+# ── 9. Privileged helper + sudoers ─────────────────────────────────────────────
+# The helper is installed as a root-owned copy outside the rproxy-writable
+# checkout. sudoers grants rproxy NOPASSWD exec on this exact path — if the
+# checkout copy were used instead, rproxy (which owns /opt/rproxy for
+# pnpm/git operations) could edit the script it's allowed to run as root.
+# Re-run this step (as root) after any change to nginx-config-helper.sh to
+# refresh the installed copy — update-app.sh does not do this automatically.
+info "Installing privileged nginx helper..."
+HELPER_INSTALL_PATH="/usr/local/libexec/rproxy-nginx-helper"
+as_root install -o root -g root -m 0700 \
+  /opt/rproxy/scripts/nginx-config-helper.sh "$HELPER_INSTALL_PATH"
+success "Helper installed to $HELPER_INSTALL_PATH (root:root, 0700)"
+
 info "Installing sudoers rules..."
-as_root chmod +x /opt/rproxy/scripts/nginx-config-helper.sh
 if as_root visudo -cf /opt/rproxy/sudoers/rproxy; then
   as_root cp /opt/rproxy/sudoers/rproxy /etc/sudoers.d/rproxy
   as_root chmod 440 /etc/sudoers.d/rproxy
@@ -202,6 +213,10 @@ else
 fi
 
 # ── 10. Directories and ownership ────────────────────────────────────────────
+# rproxy still owns the /opt/rproxy checkout (needed for git pull / pnpm
+# install / pnpm build during install-app.sh and update-app.sh) — this is
+# safe now because the privileged helper it can sudo-run lives outside this
+# tree at $HELPER_INSTALL_PATH, root-owned and not writable by rproxy.
 info "Setting up directories..."
 as_root mkdir -p /var/lib/rproxy/staging /var/log/rproxy
 as_root mkdir -p /var/www/html/.well-known/acme-challenge

@@ -84,7 +84,16 @@ export const loginSchema = z.object({
 });
 
 // ── Custom directives safety check ───────────────────────────────────────────
-// Blocks directives that could enable exec or include arbitrary files
+// These directives are admin-only free text inserted close to verbatim into
+// the generated nginx config (see nginx-config.ts / redirect-config.ts), so
+// this isn't a sandbox in the sense of stopping a fully malicious admin —
+// admins can already break or materially alter nginx through this field.
+// It exists to catch context-escape and RCE-adjacent mistakes/payloads:
+// blocks directives that could enable exec or include arbitrary files, and
+// blocks braces so a line can't close the current server/location block and
+// open a new one (or the reverse) — a blocklist can't safely reason about
+// brace balance or nesting context, so any brace is rejected outright
+// rather than trying to allow "balanced" ones.
 const BLOCKED_NGINX_DIRECTIVES = [
   /perl_set/i,
   /set_by_lua/i,
@@ -93,6 +102,7 @@ const BLOCKED_NGINX_DIRECTIVES = [
   /rewrite_by_lua/i,
   /\binclude\s+/i,           // block all includes (prevents arbitrary file disclosure)
   /load_module/i,
+  /[{}]/,                    // no nested blocks / context escapes — one directive per line
 ];
 
 export function validateNginxDirective(directive: string): boolean {

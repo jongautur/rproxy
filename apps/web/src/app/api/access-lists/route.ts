@@ -16,6 +16,7 @@ const createSchema = z.object({
   name: z.string().min(1).max(64).regex(/^[a-zA-Z0-9 _-]+$/, "Name contains invalid characters"),
   authEnabled: z.boolean().default(false),
   authRealm: z.string().max(128).default("Restricted"),
+  defaultAction: z.enum(["allow", "deny"]).default("deny"),
   users: z.array(z.object({
     username: z.string().min(1).max(64).refine(isValidHtpasswdUsername, "Invalid username characters"),
     password: z.string().min(1).max(256),

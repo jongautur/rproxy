@@ -30,23 +30,27 @@ export async function POST(req: NextRequest) {
 
     const hash = await bcrypt.hash(newPassword, 12);
 
+    // Bump tokenVersion so any other outstanding access/refresh tokens for
+    // this account (other devices, or a leaked token) stop working — only
+    // the tokens re-issued below, carrying the new version, remain valid.
     const updated = await prisma.user.update({
       where: { id: session.id },
-      data: { passwordHash: hash, mustChangePassword: false },
+      data: { passwordHash: hash, mustChangePassword: false, tokenVersion: { increment: 1 } },
     });
 
-    // Re-issue tokens so the new JWT no longer carries mustChangePassword: true
     await setAuthCookies({
       accessToken: await signAccessToken({
         sub: updated.id,
         username: updated.username,
         role: updated.role,
+        tokenVersion: updated.tokenVersion,
         mustChangePassword: false,
       }),
       refreshToken: await signRefreshToken({
         sub: updated.id,
         username: updated.username,
         role: updated.role,
+        tokenVersion: updated.tokenVersion,
         mustChangePassword: false,
       }),
     });

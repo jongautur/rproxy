@@ -22,8 +22,17 @@ cd "$APP_ROOT"
   exit 1
 }
 
+OLD_HEAD="$(git rev-parse HEAD)"
 git fetch --tags origin
 git pull --ff-only
+NEW_HEAD="$(git rev-parse HEAD)"
+
+if ! git diff --quiet "$OLD_HEAD" "$NEW_HEAD" -- scripts/nginx-config-helper.sh; then
+  echo "WARNING: scripts/nginx-config-helper.sh changed in this update." >&2
+  echo "         The root-owned copy at /usr/local/libexec/rproxy-nginx-helper is" >&2
+  echo "         NOT updated automatically (rproxy cannot write to it). Run" >&2
+  echo "         'sudo bash $APP_ROOT/scripts/setup.sh' as root to refresh it." >&2
+fi
 
 cd "$APP_DIR"
 pnpm install --frozen-lockfile

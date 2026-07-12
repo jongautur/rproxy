@@ -3,6 +3,11 @@
 # Called via sudo by the rproxy app. Performs validated file operations on
 # nginx config directories. All arguments are strictly validated here before
 # any filesystem operation — never trust caller input.
+#
+# This is the SOURCE copy. The copy that actually runs as root is installed
+# by setup.sh to /usr/local/libexec/rproxy-nginx-helper (root:root, 0700),
+# outside the rproxy-writable checkout. Editing this file has no effect on
+# production until an admin re-runs setup.sh (as root) to refresh that copy.
 
 set -euo pipefail
 
@@ -42,7 +47,9 @@ case "$CMD" in
 
   deploy)
     # Usage: deploy <filename.conf>
-    # Copies from staging to sites-available
+    # Copies from staging to sites-available, atomically (temp file + rename
+    # within the same directory) so a concurrent nginx -t/reload never sees
+    # a partially written file.
     FILENAME="${2:-}"
     validate_conf_filename "$FILENAME"
     SRC="$STAGING_DIR/$FILENAME"
@@ -53,8 +60,60 @@ case "$CMD" in
       echo "ERROR: Staging file not found: $SRC" >&2
       exit 1
     fi
-    cp -- "$SRC" "$DST"
+    cp -- "$SRC" "$DST.tmp.$$"
+    mv -f -- "$DST.tmp.$$" "$DST"
     echo "OK: deployed $FILENAME to $SITES_AVAILABLE"
+    ;;
+
+  backup)
+    # Usage: backup <filename.conf>
+    # Snapshots the current sites-available content (if any) and whether the
+    # site is currently enabled, so a failed deploy can be rolled back with
+    # `restore`. Call this before `deploy` in a deploy transaction.
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    AVAILABLE="$SITES_AVAILABLE/$FILENAME"
+    validate_path_in_dir "$AVAILABLE" "$SITES_AVAILABLE"
+    mkdir -p "$STAGING_DIR"
+    if [[ -f "$AVAILABLE" ]]; then
+      cp -- "$AVAILABLE" "$STAGING_DIR/${FILENAME}.bak"
+    else
+      rm -f -- "$STAGING_DIR/${FILENAME}.bak"
+    fi
+    if [[ -L "$SITES_ENABLED/$FILENAME" ]]; then
+      : > "$STAGING_DIR/${FILENAME}.was-enabled"
+    else
+      rm -f -- "$STAGING_DIR/${FILENAME}.was-enabled"
+    fi
+    echo "OK: backed up $FILENAME"
+    ;;
+
+  restore)
+    # Usage: restore <filename.conf>
+    # Reverts sites-available/sites-enabled to the state captured by the
+    # most recent `backup` for this filename. If there was no prior config
+    # (a brand-new site), removes it entirely instead.
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    AVAILABLE="$SITES_AVAILABLE/$FILENAME"
+    ENABLED="$SITES_ENABLED/$FILENAME"
+    validate_path_in_dir "$AVAILABLE" "$SITES_AVAILABLE"
+    validate_path_in_dir "$ENABLED" "$SITES_ENABLED"
+    BAK="$STAGING_DIR/${FILENAME}.bak"
+    if [[ -f "$BAK" ]]; then
+      cp -- "$BAK" "$AVAILABLE.tmp.$$"
+      mv -f -- "$AVAILABLE.tmp.$$" "$AVAILABLE"
+      rm -f -- "$BAK"
+    else
+      rm -f -- "$AVAILABLE"
+    fi
+    if [[ -f "$STAGING_DIR/${FILENAME}.was-enabled" ]]; then
+      ln -sf "$AVAILABLE" "$ENABLED"
+      rm -f -- "$STAGING_DIR/${FILENAME}.was-enabled"
+    else
+      rm -f -- "$ENABLED"
+    fi
+    echo "OK: restored $FILENAME"
     ;;
 
   enable)
@@ -156,7 +215,8 @@ case "$CMD" in
     if [[ ! -f "$SRC" ]]; then
       echo "ERROR: Staging file not found: $SRC" >&2; exit 1
     fi
-    cp -- "$SRC" "$DST"
+    cp -- "$SRC" "$DST.tmp.$$"
+    mv -f -- "$DST.tmp.$$" "$DST"
     echo "OK: stream-deployed $FILENAME"
     ;;
 
@@ -170,6 +230,42 @@ case "$CMD" in
     fi
     rm -f -- "$DST"
     echo "OK: stream-removed $FILENAME"
+    ;;
+
+  stream-backup)
+    # Usage: stream-backup <filename.conf>
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    DST="/etc/nginx/stream.d/$FILENAME"
+    if [[ "$(realpath -m "$DST")" != "/etc/nginx/stream.d/"* ]]; then
+      echo "ERROR: Path outside stream.d" >&2; exit 1
+    fi
+    mkdir -p "$STAGING_DIR"
+    if [[ -f "$DST" ]]; then
+      cp -- "$DST" "$STAGING_DIR/${FILENAME}.stream.bak"
+    else
+      rm -f -- "$STAGING_DIR/${FILENAME}.stream.bak"
+    fi
+    echo "OK: backed up stream $FILENAME"
+    ;;
+
+  stream-restore)
+    # Usage: stream-restore <filename.conf>
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    DST="/etc/nginx/stream.d/$FILENAME"
+    if [[ "$(realpath -m "$DST")" != "/etc/nginx/stream.d/"* ]]; then
+      echo "ERROR: Path outside stream.d" >&2; exit 1
+    fi
+    BAK="$STAGING_DIR/${FILENAME}.stream.bak"
+    if [[ -f "$BAK" ]]; then
+      cp -- "$BAK" "$DST.tmp.$$"
+      mv -f -- "$DST.tmp.$$" "$DST"
+      rm -f -- "$BAK"
+    else
+      rm -f -- "$DST"
+    fi
+    echo "OK: restored stream $FILENAME"
     ;;
 
   mkdir-stream)
@@ -233,7 +329,7 @@ case "$CMD" in
 
   *)
     echo "ERROR: Unknown command: $CMD" >&2
-    echo "Usage: $0 {deploy|enable|disable|remove|mkdir-ssl} [filename.conf]" >&2
+    echo "Usage: $0 {deploy|backup|restore|enable|disable|remove|mkdir-ssl|stream-deploy|stream-backup|stream-restore|stream-remove} [filename.conf]" >&2
     exit 1
     ;;
 esac

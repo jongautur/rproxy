@@ -48,6 +48,7 @@ export function AccessListDialog({ open, onOpenChange, editTarget, onSaved }: Pr
   const [ipRules, setIpRules] = useState<IpRule[]>([]);
   const [newIp, setNewIp] = useState("");
   const [newIpAction, setNewIpAction] = useState<"allow" | "deny">("allow");
+  const [defaultAction, setDefaultAction] = useState<"allow" | "deny">("deny");
 
   useEffect(() => {
     if (!open) return;
@@ -63,9 +64,11 @@ export function AccessListDialog({ open, onOpenChange, editTarget, onSaved }: Pr
         address: r.address,
         action: r.action as "allow" | "deny",
       })));
+      setDefaultAction(editTarget.defaultAction ?? "deny");
     } else {
       setName(""); setAuthEnabled(false); setAuthRealm("Restricted");
       setExistingUsers([]); setDeleteUserIds([]); setNewUsers([]); setIpRules([]);
+      setDefaultAction("deny");
     }
     setNewUsername(""); setNewPassword(""); setNewIp(""); setNewIpAction("allow");
   }, [open, editTarget]);
@@ -119,6 +122,7 @@ export function AccessListDialog({ open, onOpenChange, editTarget, onSaved }: Pr
         ? {
             name: name.trim(), authEnabled,
             authRealm: authRealm || "Restricted",
+            defaultAction,
             addUsers: newUsers.map(({ username, password }) => ({ username, password })),
             deleteUserIds,
             ipRules: ipRules.map(({ address, action }) => ({ address, action })),
@@ -126,6 +130,7 @@ export function AccessListDialog({ open, onOpenChange, editTarget, onSaved }: Pr
         : {
             name: name.trim(), authEnabled,
             authRealm: authRealm || "Restricted",
+            defaultAction,
             users: newUsers.map(({ username, password }) => ({ username, password })),
             ipRules: ipRules.map(({ address, action }) => ({ address, action })),
           };
@@ -249,9 +254,7 @@ export function AccessListDialog({ open, onOpenChange, editTarget, onSaved }: Pr
             <div>
               <p className="text-sm font-medium">IP Access Rules</p>
               <p className="text-xs text-muted-foreground">
-                Rules evaluated in order.{" "}
-                <code className="text-xs bg-muted px-1 rounded">deny all</code>{" "}
-                is appended automatically.
+                Rules evaluated in order. Anything not matched falls through to the default action below.
               </p>
             </div>
 
@@ -278,9 +281,6 @@ export function AccessListDialog({ open, onOpenChange, editTarget, onSaved }: Pr
                     </div>
                   </div>
                 ))}
-                <div className="px-2.5 py-1.5 rounded-md border border-dashed border-border/40 text-xs font-mono text-muted-foreground/60">
-                  deny all; (implicit)
-                </div>
               </div>
             )}
 
@@ -305,6 +305,23 @@ export function AccessListDialog({ open, onOpenChange, editTarget, onSaved }: Pr
                 <Plus className="w-3.5 h-3.5" />
               </Button>
             </div>
+
+            {ipRules.length > 0 && (
+              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md border border-dashed border-border/40">
+                <span className="text-xs text-muted-foreground">
+                  Anything not matched above:
+                </span>
+                <Select value={defaultAction} onValueChange={(v) => setDefaultAction(v as "allow" | "deny")}>
+                  <SelectTrigger className="w-28 h-7 text-xs shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="deny">Deny all</SelectItem>
+                    <SelectItem value="allow">Allow all</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         </div>
 

@@ -44,6 +44,7 @@ interface AccessListOptions {
   id: string;
   authEnabled: boolean;
   authRealm: string;
+  defaultAction: string;
   authUsers: Pick<AccessListUser, "id" | "username">[];
   ipRules: Pick<AccessListIpRule, "address" | "action" | "sortOrder">[];
 }
@@ -194,7 +195,11 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
         const addr = sanitizeNginxValue(rule.address);
         if (addr) lines.push(`        ${rule.action === "allow" ? "allow" : "deny"} ${addr};`);
       }
-      lines.push(`        deny all;`);
+      // A denylist (rules that only deny specific addresses) with a
+      // hardcoded "deny all" here would block everyone, not just the
+      // listed addresses — the default action makes the catch-all match
+      // what the admin actually configured.
+      lines.push(`        ${al.defaultAction === "allow" ? "allow" : "deny"} all;`);
     }
     if ((al.authEnabled && al.authUsers.length > 0) || al.ipRules.length > 0) {
       lines.push(``);

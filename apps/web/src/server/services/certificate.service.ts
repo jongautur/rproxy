@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { fireNotification } from "@/server/services/notification.service";
 import { encryptJson } from "@/lib/encrypt";
+import { reloadNginx } from "@/server/system/nginx";
 import {
   issueCertificate, renewCertificate, revokeCertificate,
   parseCertInfo, getCertPaths,
@@ -74,6 +75,8 @@ export async function createCertificate(
       },
     });
 
+    await reloadNginx();
+
     await prisma.auditLog.create({
       data: { userId, action: "ISSUE_CERT", entity: "Certificate", entityId: cert.id },
     });
@@ -111,6 +114,8 @@ export async function renewCert(id: string, userId: string): Promise<{ certifica
         renewError: null,
       },
     });
+
+    await reloadNginx();
 
     await prisma.auditLog.create({
       data: { userId, action: "RENEW_CERT", entity: "Certificate", entityId: id },
@@ -158,7 +163,16 @@ export async function checkAndRenewExpiring(): Promise<void> {
 
   for (const cert of expiring) {
     try {
-      await renewCertificate(cert.domain);
+      // renewCertificate returns an ExecResult with a nonzero exitCode on
+      // failure — it does not throw. Checking the exit code explicitly
+      // (rather than assuming success once the await resolves) is required
+      // here, otherwise a failed renewal is recorded as successful.
+      const result = await renewCertificate(cert.domain);
+      if (result.exitCode !== 0) {
+        const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+        throw new Error(output || `acme.sh exited with code ${result.exitCode}`);
+      }
+
       const { certPath } = getCertPaths(cert.domain);
       const info = await parseCertInfo(certPath).catch(() => null);
       await prisma.certificate.update({
@@ -170,6 +184,8 @@ export async function checkAndRenewExpiring(): Promise<void> {
           renewError: null,
         },
       });
+
+      await reloadNginx();
     } catch (e) {
       await prisma.certificate.update({
         where: { id: cert.id },

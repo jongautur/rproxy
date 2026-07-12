@@ -3,6 +3,7 @@ import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { ok, unauthorized, fromError } from "@/lib/api-response";
 import { nginxHelper } from "@/server/system/exec";
+import { pruneOldAuditLogs } from "@/server/services/log-parser";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,9 @@ export async function POST(req: NextRequest) {
     const maxGb = Math.max(1, parseInt(setting?.value ?? "10") || 10);
     const maxBytes = maxGb * 1073741824;
     const result = await nginxHelper("log-clean", String(maxBytes));
+
+    await pruneOldAuditLogs();
+
     return ok({ cleaned: result.exitCode === 0, output: result.stdout });
   } catch (e) {
     return fromError(e);

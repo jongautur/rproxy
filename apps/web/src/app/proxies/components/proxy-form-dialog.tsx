@@ -495,7 +495,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
                   </Select>
                   {certs.length === 0 && (
                     <p className="text-xs text-muted-foreground">
-                      No active certificates yet — click "Issue New" above.
+                      No active certificates yet — click &quot;Issue New&quot; above.
                     </p>
                   )}
                 </div>

@@ -16,6 +16,7 @@ const updateSchema = z.object({
   name: z.string().min(1).max(64).regex(/^[a-zA-Z0-9 _-]+$/).optional(),
   authEnabled: z.boolean().optional(),
   authRealm: z.string().max(128).optional(),
+  defaultAction: z.enum(["allow", "deny"]).optional(),
   addUsers: z.array(z.object({
     username: z.string().min(1).max(64).refine(isValidHtpasswdUsername, "Invalid username"),
     password: z.string().min(1).max(256),

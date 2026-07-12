@@ -33,25 +33,70 @@ interface HourBucket {
   errors: number;
 }
 
+interface LogOffsetState {
+  offset: number;
+  ino: number;
+}
+
+export function parseOffsetState(raw: string | undefined): LogOffsetState | null {
+  if (!raw) return null;
+  // Older versions of this function stored a bare offset integer with no
+  // inode — treat that as "unknown identity" so the first read after
+  // upgrade re-derives it safely (falls into the ino-mismatch reset path
+  // below only if the file has since rotated; otherwise offset is reused
+  // as-is).
+  if (/^\d+$/.test(raw)) return { offset: parseInt(raw, 10), ino: -1 };
+  try {
+    const parsed = JSON.parse(raw) as Partial<LogOffsetState>;
+    if (typeof parsed.offset === "number" && typeof parsed.ino === "number") {
+      return { offset: parsed.offset, ino: parsed.ino };
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 export async function parseLogsForProxy(proxyHostId: string, domain: string): Promise<number> {
   const safeFilename = domain.replace(/^\*\./, "wildcard.").replace(/[^a-zA-Z0-9.-]/g, "_");
   const logPath = `${LOG_DIR}/${safeFilename}.access.log`;
 
-  // Get current file size
   let fileSize: number;
+  let ino: number;
   try {
     const s = await stat(logPath);
     fileSize = s.size;
+    ino = s.ino;
   } catch {
     return 0; // log file doesn't exist yet
   }
 
-  // Get stored offset
   const offsetKey = `log_offset:${proxyHostId}`;
   const stored = await prisma.setting.findUnique({ where: { key: offsetKey } });
-  const offset = stored ? parseInt(stored.value, 10) : 0;
+  const state = parseOffsetState(stored?.value);
 
-  if (offset >= fileSize) return 0; // nothing new
+  // Reset to the start whenever the file identity changed (rotation swapped
+  // in a new inode) or the file is smaller than our last offset (truncated
+  // in place, e.g. by the log-size-cap cleanup) — otherwise a rotation
+  // would permanently wedge this proxy's stats at zero, since offset would
+  // stay stuck above every future (smaller) fileSize forever.
+  const identityChanged = state === null || (state.ino !== -1 && state.ino !== ino) || state.offset > fileSize;
+  const offset = identityChanged ? 0 : state.offset;
+
+  const persistState = async (newOffset: number): Promise<void> => {
+    await prisma.setting.upsert({
+      where: { key: offsetKey },
+      create: { key: offsetKey, value: JSON.stringify({ offset: newOffset, ino }) },
+      update: { value: JSON.stringify({ offset: newOffset, ino }) },
+    });
+  };
+
+  if (offset >= fileSize) {
+    // Nothing new to read, but if identity changed we still need to record
+    // the reset (offset 0, new inode) so the next run compares correctly.
+    if (identityChanged) await persistState(offset);
+    return 0;
+  }
 
   // Read new bytes only
   const buffer = Buffer.alloc(fileSize - offset);
@@ -62,7 +107,15 @@ export async function parseLogsForProxy(proxyHostId: string, domain: string): Pr
     await fh.close();
   }
 
-  const lines = buffer.toString("utf-8").split("\n");
+  const text = buffer.toString("utf-8");
+  // Only consume up through the last newline — a line still being written
+  // by nginx (no trailing \n yet) is left unread so the next parse picks up
+  // the complete line instead of the offset skipping past its start.
+  const lastNewline = text.lastIndexOf("\n");
+  const completeText = lastNewline === -1 ? "" : text.slice(0, lastNewline + 1);
+  const consumedBytes = Buffer.byteLength(completeText, "utf-8");
+  const lines = completeText.length > 0 ? completeText.split("\n").filter((l) => l.length > 0) : [];
+
   const buckets = new Map<string, HourBucket>();
 
   for (const line of lines) {
@@ -96,12 +149,7 @@ export async function parseLogsForProxy(proxyHostId: string, domain: string): Pr
     });
   }
 
-  // Update offset
-  await prisma.setting.upsert({
-    where: { key: offsetKey },
-    create: { key: offsetKey, value: String(fileSize) },
-    update: { value: String(fileSize) },
-  });
+  await persistState(offset + consumedBytes);
 
   return buckets.size;
 }
@@ -109,4 +157,11 @@ export async function parseLogsForProxy(proxyHostId: string, domain: string): Pr
 export async function pruneOldTrafficStats(): Promise<void> {
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   await prisma.trafficStat.deleteMany({ where: { hour: { lt: cutoff } } });
+}
+
+// Audit logs otherwise grow unbounded — kept longer than traffic stats
+// since they're the record of who changed what, not raw metrics.
+export async function pruneOldAuditLogs(): Promise<void> {
+  const cutoff = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+  await prisma.auditLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
 }

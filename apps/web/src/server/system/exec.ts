@@ -124,13 +124,20 @@ export async function acmeExec(
 // Runs the nginx-config-helper.sh script via sudo.
 // cmd is one of: deploy | enable | disable | remove | mkdir-ssl
 // filename must match /^[a-zA-Z0-9._-]+\.conf$/ (validated inside the script too)
+//
+// helperPath must point at the root-owned copy installed by setup.sh
+// (/usr/local/libexec/rproxy-nginx-helper), never at the checkout under
+// /opt/rproxy — rproxy owns that tree for git/pnpm purposes, so a sudoers
+// rule targeting the checkout copy would let rproxy edit the very script
+// it's allowed to run as root.
 export async function nginxHelper(
-  cmd: "deploy" | "enable" | "disable" | "remove" | "mkdir-ssl" | "log-size" | "log-clean"
+  cmd: "deploy" | "backup" | "restore" | "enable" | "disable" | "remove" | "mkdir-ssl"
+      | "log-size" | "log-clean"
       | "mkdir-access-lists" | "deploy-htpasswd" | "remove-htpasswd"
-      | "stream-deploy" | "stream-remove" | "mkdir-stream",
+      | "stream-deploy" | "stream-backup" | "stream-restore" | "stream-remove" | "mkdir-stream",
   arg?: string
 ): Promise<ExecResult> {
-  const helperPath = "/opt/rproxy/scripts/nginx-config-helper.sh";
+  const helperPath = "/usr/local/libexec/rproxy-nginx-helper";
   const args: string[] = [cmd];
   if (arg !== undefined) {
     if (cmd === "log-clean") {

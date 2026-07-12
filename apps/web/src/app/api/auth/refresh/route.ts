@@ -12,11 +12,15 @@ export async function POST() {
 
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) return unauthorized("User not found");
+    // tokenVersion is bumped on role/password change or forced logout — a
+    // refresh token issued before that point must not mint new sessions.
+    if (payload.tokenVersion !== user.tokenVersion) return unauthorized("Session revoked");
 
     const tokenPayload = {
       sub: user.id,
       username: user.username,
       role: user.role,
+      tokenVersion: user.tokenVersion,
       mustChangePassword: user.mustChangePassword,
     };
 

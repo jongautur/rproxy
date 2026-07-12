@@ -1,23 +1,32 @@
 import { NextRequest } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, mkdtemp, chmod, rm } from "fs/promises";
+import { tmpdir } from "os";
 import path from "path";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { safeExec } from "@/server/system/exec";
 import { nginxHelper } from "@/server/system/exec";
 import { badRequest, created, fromError } from "@/lib/api-response";
+import { isValidDomain } from "@/lib/validation";
 import { z } from "zod";
 
 const SSL_BASE = "/etc/nginx/ssl";
 
 const uploadSchema = z.object({
-  domain: z.string().min(1).max(253),
+  domain: z.string().min(1).max(253).refine(
+    (d) => isValidDomain(d.startsWith("*.") ? d.slice(2) : d),
+    "Invalid domain"
+  ),
   certificate: z.string().min(1),
   privateKey: z.string().min(1),
   chain: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
+  // mkdtemp(3) always creates the directory mode 0700 regardless of the
+  // process umask, so the private key is never briefly world-readable
+  // during validation. Always removed in `finally`, success or failure.
+  let tmpDir: string | null = null;
   try {
     const session = await requireAdmin();
     const body = await req.json() as unknown;
@@ -29,9 +38,7 @@ export async function POST(req: NextRequest) {
 
     const { domain, certificate, privateKey, chain } = parsed.data;
 
-    // Write to temp paths for validation
-    const tmpDir = `/tmp/rproxy-cert-${Date.now()}`;
-    await mkdir(tmpDir, { recursive: true });
+    tmpDir = await mkdtemp(path.join(tmpdir(), "rproxy-cert-"));
     const tmpCert = path.join(tmpDir, "cert.pem");
     const tmpKey = path.join(tmpDir, "key.pem");
     await writeFile(tmpCert, certificate.trim() + "\n", "utf-8");
@@ -79,14 +86,21 @@ export async function POST(req: NextRequest) {
     const safeName = domain.replace(/^\*\./, "wildcard.").replace(/[^a-zA-Z0-9.-]/g, "_");
     const certDir = path.join(SSL_BASE, safeName);
     await mkdir(certDir, { recursive: true });
+    await chmod(certDir, 0o700);
 
     const certPath = path.join(certDir, "cert.pem");
     const keyPath = path.join(certDir, "key.pem");
     const chainPath = path.join(certDir, "fullchain.pem");
 
+    // Explicit chmod after write: the `mode` passed to writeFile is still
+    // subject to the process umask, so it can't be relied on alone to keep
+    // the private key non-world-readable.
     await writeFile(certPath, certificate.trim() + "\n", "utf-8");
+    await chmod(certPath, 0o644);
     await writeFile(keyPath, privateKey.trim() + "\n", "utf-8");
+    await chmod(keyPath, 0o600);
     await writeFile(chainPath, (chain ? chain.trim() + "\n" : certificate.trim() + "\n"), "utf-8");
+    await chmod(chainPath, 0o644);
 
     const cert = await prisma.certificate.create({
       data: {
@@ -119,5 +133,7 @@ export async function POST(req: NextRequest) {
     return created({ certificate: cert });
   } catch (e) {
     return fromError(e);
+  } finally {
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 }

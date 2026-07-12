@@ -53,7 +53,7 @@ function EmptyState() {
     <div className="text-center py-16">
       <Globe className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
       <p className="text-muted-foreground font-medium">No proxy hosts yet</p>
-      <p className="text-muted-foreground text-sm mt-1">Click "Add Proxy Host" to create your first reverse proxy</p>
+      <p className="text-muted-foreground text-sm mt-1">Click &quot;Add Proxy Host&quot; to create your first reverse proxy</p>
     </div>
   );
 }

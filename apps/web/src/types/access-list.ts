@@ -15,6 +15,7 @@ export interface AccessListWithRelations {
   name: string;
   authEnabled: boolean;
   authRealm: string;
+  defaultAction: "allow" | "deny";
   authUsers: AccessListUser[];
   ipRules: AccessListIpRule[];
   proxyHosts: { id: string; domain: string }[];

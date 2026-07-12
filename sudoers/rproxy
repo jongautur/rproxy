@@ -4,6 +4,12 @@
 #
 # File operations use nginx-config-helper.sh which does its own
 # strict path validation — no wildcards needed here.
+#
+# The command below points at the root-owned copy installed by setup.sh at
+# /usr/local/libexec/rproxy-nginx-helper, NOT the checkout under /opt/rproxy
+# (which rproxy owns for git/pnpm purposes). Never repoint this at a path
+# rproxy can write to — doing so lets rproxy edit the script it can then
+# run as root via this rule.
 
 # Nginx config testing and version check
 rproxy ALL=(root) NOPASSWD: /usr/sbin/nginx -t
@@ -18,5 +24,5 @@ rproxy ALL=(root) NOPASSWD: /bin/systemctl start nginx
 rproxy ALL=(root) NOPASSWD: /bin/systemctl stop nginx
 rproxy ALL=(root) NOPASSWD: /bin/systemctl is-active nginx
 
-# Config file management via validated helper script
-rproxy ALL=(root) NOPASSWD: /opt/rproxy/scripts/nginx-config-helper.sh
+# Config file management via validated helper script (root-owned installed copy)
+rproxy ALL=(root) NOPASSWD: /usr/local/libexec/rproxy-nginx-helper

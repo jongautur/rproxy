@@ -33,6 +33,13 @@ export function conflict(error: string): NextResponse<ApiError> {
   return NextResponse.json({ success: false, error }, { status: 409 });
 }
 
+export function tooManyRequests(error: string, retryAfterSeconds: number): NextResponse<ApiError> {
+  return NextResponse.json(
+    { success: false, error },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } }
+  );
+}
+
 export function serverError(error: string): NextResponse<ApiError> {
   return NextResponse.json({ success: false, error }, { status: 500 });
 }

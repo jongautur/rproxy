@@ -10,6 +10,13 @@ const patchSchema = z.object({
   role: z.enum(["ADMIN", "VIEWER"]),
 });
 
+async function isLastAdmin(id: string): Promise<boolean> {
+  const admins = await prisma.user.count({ where: { role: "ADMIN" } });
+  if (admins > 1) return false;
+  const user = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  return user?.role === "ADMIN";
+}
+
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const session = await requireSession();
@@ -23,9 +30,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return notFound("User not found");
 
+    if (parsed.data.role !== "ADMIN" && (await isLastAdmin(id))) {
+      return badRequest("Cannot demote the last administrator");
+    }
+
+    // Bump tokenVersion so this user's existing sessions immediately pick
+    // up the new role instead of keeping the old one until their access
+    // token naturally expires.
     const updated = await prisma.user.update({
       where: { id },
-      data: { role: parsed.data.role },
+      data: { role: parsed.data.role, tokenVersion: { increment: 1 } },
       select: { id: true, username: true, email: true, role: true },
     });
 
@@ -49,6 +63,10 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return notFound("User not found");
+
+    if (await isLastAdmin(id)) {
+      return badRequest("Cannot delete the last administrator");
+    }
 
     await prisma.user.delete({ where: { id } });
 

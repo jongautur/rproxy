@@ -115,7 +115,7 @@ export function CertTable({ data, loading, onRefresh, page, onPageChange }: Prop
             <div className="text-center py-16">
               <Lock className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
               <p className="text-muted-foreground font-medium">No certificates yet</p>
-              <p className="text-muted-foreground text-sm mt-1">Click "Issue Certificate" to get started</p>
+              <p className="text-muted-foreground text-sm mt-1">Click &quot;Issue Certificate&quot; to get started</p>
             </div>
           ) : (
             <div className="overflow-x-auto">

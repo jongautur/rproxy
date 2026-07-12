@@ -58,6 +58,7 @@ export async function createAccessList(data: {
   name: string;
   authEnabled: boolean;
   authRealm: string;
+  defaultAction: string;
   users: { username: string; password: string }[];
   ipRules: { address: string; action: string; sortOrder: number }[];
 }) {
@@ -73,6 +74,7 @@ export async function createAccessList(data: {
       name: data.name,
       authEnabled: data.authEnabled,
       authRealm: data.authRealm,
+      defaultAction: data.defaultAction,
       authUsers: { create: hashed },
       ipRules: {
         create: data.ipRules.map((r, i) => ({
@@ -102,6 +104,7 @@ export async function updateAccessList(
     name?: string;
     authEnabled?: boolean;
     authRealm?: string;
+    defaultAction?: string;
     addUsers?: { username: string; password: string }[];
     deleteUserIds?: string[];
     ipRules?: { address: string; action: string; sortOrder: number }[];
@@ -144,6 +147,7 @@ export async function updateAccessList(
       ...(data.name !== undefined && { name: data.name }),
       ...(data.authEnabled !== undefined && { authEnabled: data.authEnabled }),
       ...(data.authRealm !== undefined && { authRealm: data.authRealm }),
+      ...(data.defaultAction !== undefined && { defaultAction: data.defaultAction }),
     },
     include: {
       authUsers: { select: { id: true, username: true } },

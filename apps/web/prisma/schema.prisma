@@ -22,6 +22,10 @@ model User {
   lastName     String?  @map("last_name")
   passwordHash       String   @map("password_hash")
   role               Role     @default(VIEWER)
+  // Bumped on role change, password change, or forced logout. Embedded in
+  // every JWT; a mismatch against the current DB value invalidates the
+  // token even if it's still within its signature-expiry window.
+  tokenVersion       Int      @default(0) @map("token_version")
   mustChangePassword Boolean  @default(false) @map("must_change_password")
   totpEnabled        Boolean  @default(false) @map("totp_enabled")
   totpSecret         String?  @map("totp_secret")   // AES-256-GCM encrypted
@@ -259,6 +263,11 @@ model AccessList {
   name        String  @unique
   authEnabled Boolean @default(false) @map("auth_enabled")
   authRealm   String  @default("Restricted") @map("auth_realm")
+  // What happens when no explicit ipRule matches: "deny" makes the rule
+  // list an allowlist (allow the listed addresses, deny everyone else —
+  // the historical/default behavior), "allow" makes it a denylist (block
+  // the listed addresses, allow everyone else).
+  defaultAction String @default("deny") @map("default_action")
 
   authUsers  AccessListUser[]
   ipRules    AccessListIpRule[]
@@ -307,6 +316,10 @@ model StreamHost {
   forwardPort Int     @map("forward_port")
   enabled     Boolean @default(true)
   configPath  String? @map("config_path")
+
+  status          ProxyStatus @default(ACTIVE)
+  lastDeployError String?     @map("last_deploy_error")
+
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

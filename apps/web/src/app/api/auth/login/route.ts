@@ -4,10 +4,20 @@ import { prisma } from "@/lib/prisma";
 import { signAccessToken, signRefreshToken, signMfaPendingToken } from "@/lib/jwt";
 import { setAuthCookies } from "@/lib/cookies";
 import { loginSchema } from "@/lib/validation";
-import { ok, badRequest, unauthorized, fromError } from "@/lib/api-response";
+import { ok, badRequest, unauthorized, tooManyRequests, fromError } from "@/lib/api-response";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    // Two windows: a per-IP cap resists distributed guessing against many
+    // accounts, a per-username cap resists a single account being brute
+    // forced from many IPs.
+    const ipLimit = checkRateLimit(`login:ip:${ip}`, 20, 5 * 60_000);
+    if (!ipLimit.allowed) {
+      return tooManyRequests("Too many login attempts. Try again later.", ipLimit.retryAfterSeconds);
+    }
+
     const body = await req.json() as unknown;
 
     const parsed = loginSchema.safeParse(body);
@@ -16,6 +26,11 @@ export async function POST(req: NextRequest) {
     }
 
     const { username, password } = parsed.data;
+
+    const userLimit = checkRateLimit(`login:user:${username.toLowerCase()}`, 10, 15 * 60_000);
+    if (!userLimit.allowed) {
+      return tooManyRequests("Too many login attempts for this account. Try again later.", userLimit.retryAfterSeconds);
+    }
 
     const user = await prisma.user.findFirst({
       where: {
@@ -37,6 +52,7 @@ export async function POST(req: NextRequest) {
         sub: user.id,
         username: user.username,
         role: user.role,
+        tokenVersion: user.tokenVersion,
       });
       // Reuse the access token cookie slot — middleware will detect mfaPending
       const { cookies } = await import("next/headers");
@@ -56,6 +72,7 @@ export async function POST(req: NextRequest) {
       sub: user.id,
       username: user.username,
       role: user.role,
+      tokenVersion: user.tokenVersion,
       mustChangePassword: user.mustChangePassword,
     };
 

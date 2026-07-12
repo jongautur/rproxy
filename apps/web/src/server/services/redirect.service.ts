@@ -1,23 +1,13 @@
-import { writeFile, unlink, mkdir } from "fs/promises";
 import path from "path";
 import { prisma } from "@/lib/prisma";
 import { generateRedirectConfig, domainToRedirectFilename } from "@/server/config-generator/redirect-config";
-import { testNginxConfig, reloadNginx } from "@/server/system/nginx";
-import { nginxHelper } from "@/server/system/exec";
+import { deploySiteConfig, removeSiteConfig, setSiteEnabled, type DeployResult } from "@/server/services/nginx-deploy.service";
 import type { RedirectHostFormData } from "@/types/redirect";
 import type { RedirectHost } from "@prisma/client";
 
-const STAGING_DIR = "/var/lib/rproxy/staging";
 const SITES_AVAILABLE = "/etc/nginx/sites-available";
 
-async function ensureStagingDir(): Promise<void> {
-  await mkdir(STAGING_DIR, { recursive: true });
-}
-
-export interface DeployResult {
-  success: boolean;
-  output: string;
-}
+export type { DeployResult };
 
 async function deployRedirectConfig(redirect: RedirectHost): Promise<DeployResult> {
   const certificate = redirect.certificateId
@@ -27,43 +17,21 @@ async function deployRedirectConfig(redirect: RedirectHost): Promise<DeployResul
   const config = generateRedirectConfig({ redirect, certificate });
   const filename = domainToRedirectFilename(redirect.sourceDomain) + ".conf";
 
-  await ensureStagingDir();
-  const stagingPath = path.join(STAGING_DIR, filename);
+  const deploy = await deploySiteConfig({ filename, config, enabled: redirect.enabled });
 
-  await writeFile(stagingPath, config, "utf-8");
-
-  const copyResult = await nginxHelper("deploy", filename);
-  if (copyResult.exitCode !== 0) {
-    await unlink(stagingPath).catch(() => {});
-    return { success: false, output: `Failed to deploy config: ${copyResult.stderr || copyResult.stdout}` };
+  if (deploy.success) {
+    await prisma.redirectHost.update({
+      where: { id: redirect.id },
+      data: { configPath: path.join(SITES_AVAILABLE, filename) },
+    });
   }
 
-  const testResult = await testNginxConfig();
-  if (!testResult.success) {
-    await nginxHelper("remove", filename);
-    await unlink(stagingPath).catch(() => {});
-    return { success: false, output: `Config test failed:\n${testResult.output}` };
-  }
-
-  if (redirect.enabled) {
-    await nginxHelper("enable", filename);
-  }
-
-  const reloadResult = await reloadNginx();
-  await unlink(stagingPath).catch(() => {});
-
-  await prisma.redirectHost.update({
-    where: { id: redirect.id },
-    data: { configPath: path.join(SITES_AVAILABLE, filename) },
-  });
-
-  return reloadResult;
+  return deploy;
 }
 
 async function removeRedirectConfig(redirect: RedirectHost): Promise<void> {
   const filename = domainToRedirectFilename(redirect.sourceDomain) + ".conf";
-  await nginxHelper("remove", filename);
-  await reloadNginx();
+  await removeSiteConfig(filename);
 }
 
 export async function createRedirect(
@@ -152,14 +120,7 @@ export async function toggleRedirect(
   });
 
   const filename = domainToRedirectFilename(redirect.sourceDomain) + ".conf";
-
-  if (enabled) {
-    await nginxHelper("enable", filename);
-  } else {
-    await nginxHelper("disable", filename);
-  }
-
-  const deploy = await reloadNginx();
+  const deploy = await setSiteEnabled(filename, enabled);
 
   await prisma.auditLog.create({
     data: {

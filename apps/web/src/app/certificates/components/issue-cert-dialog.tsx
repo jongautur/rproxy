@@ -188,7 +188,7 @@ export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }:
                   <Info className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
                     Nginx must be running and port 80 must be reachable from the internet.
-                    The domain must point to this server's IP.
+                    The domain must point to this server&apos;s IP.
                   </span>
                 </div>
               </TabsContent>

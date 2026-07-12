@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { requireSession } from "@/lib/auth";
+import { requireSession, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createStream } from "@/server/services/stream.service";
 import { ok, badRequest, conflict, fromError } from "@/lib/api-response";
@@ -24,7 +24,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireSession();
+    const session = await requireAdmin();
     const body = await req.json() as unknown;
     const parsed = schema.safeParse(body);
     if (!parsed.success) return badRequest(parsed.error.errors[0]?.message ?? "Invalid input");
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const existing = await prisma.streamHost.findUnique({ where: { name: parsed.data.name } });
     if (existing) return conflict("A stream host with that name already exists");
 
-    const stream = await createStream(parsed.data, session.id);
-    return ok({ stream }, 201);
+    const { stream, deploy } = await createStream(parsed.data, session.id);
+    return ok({ stream, nginxTest: deploy }, 201);
   } catch (e) { return fromError(e); }
 }

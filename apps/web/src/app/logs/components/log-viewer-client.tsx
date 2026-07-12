@@ -22,13 +22,30 @@ interface LogFile {
 
 type ConnStatus = "disconnected" | "connecting" | "connected" | "error";
 
-function colorLine(line: string): string {
-  // nginx access log: highlight status codes
-  return line
-    .replace(/" (5\d\d) /g, '" <span class="text-red-400">$1</span> ')
-    .replace(/" (4\d\d) /g, '" <span class="text-yellow-400">$1</span> ')
-    .replace(/" (3\d\d) /g, '" <span class="text-blue-400">$1</span> ')
-    .replace(/" (2\d\d) /g, '" <span class="text-green-400">$1</span> ');
+const STATUS_CODE_RE = /(" [2-5]\d\d )/g;
+const STATUS_CODE_GROUP_RE = /^" ([2-5])(\d\d) $/;
+const STATUS_COLOR: Record<string, string> = {
+  "5": "text-red-400",
+  "4": "text-yellow-400",
+  "3": "text-blue-400",
+  "2": "text-green-400",
+};
+
+// Renders a log line as text nodes, only ever inserting attacker-controlled
+// content (request paths, UA, referrer) as React text — never as HTML.
+function renderColoredLine(line: string): React.ReactNode[] {
+  return line.split(STATUS_CODE_RE).map((part, i) => {
+    const m = STATUS_CODE_GROUP_RE.exec(part);
+    if (!m) return part;
+    const [, firstDigit, rest] = m;
+    return (
+      <span key={i}>
+        {'" '}
+        <span className={STATUS_COLOR[firstDigit!]}>{firstDigit}{rest}</span>
+        {" "}
+      </span>
+    );
+  });
 }
 
 const MAX_LINES = 2000;
@@ -319,8 +336,9 @@ export function LogViewerClient() {
                 line.includes("[warn]") ? "text-yellow-300" :
                 "text-[#c9d1d9]"
               )}
-              dangerouslySetInnerHTML={{ __html: colorLine(line) }}
-            />
+            >
+              {renderColoredLine(line)}
+            </div>
           ))
         )}
         <div ref={bottomRef} />

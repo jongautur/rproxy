@@ -84,7 +84,7 @@ export async function issueCertificate(opts: IssueOptions): Promise<ExecResult> 
   validateDomainArg(opts.domain);
 
   // Ensure SSL directory exists
-  await sudoExec("/opt/rproxy/scripts/nginx-config-helper.sh", ["mkdir-ssl"]);
+  await sudoExec("/usr/local/libexec/rproxy-nginx-helper", ["mkdir-ssl"]);
 
   // Create domain-specific dir
   const { dir, certPath, keyPath, chainPath } = getCertPaths(opts.domain);
