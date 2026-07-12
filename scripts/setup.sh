@@ -150,6 +150,7 @@ fi
 if [[ ! -f "${RPROXY_HOME}/.acme.sh/acme.sh" ]]; then
   info "Installing acme.sh for ${RPROXY_USER}..."
   as_user "$RPROXY_USER" bash -c '
+    cd "$HOME"
     curl -fsSL https://get.acme.sh -o "$HOME/acme-install.sh"
     bash "$HOME/acme-install.sh" --install-online --nocron --noemail 2>&1 || true
     rm -f "$HOME/acme-install.sh"
@@ -206,6 +207,7 @@ success "Nginx configured"
 # refresh the installed copy — update-app.sh does not do this automatically.
 info "Installing privileged nginx helper..."
 HELPER_INSTALL_PATH="/usr/local/libexec/rproxy-nginx-helper"
+as_root mkdir -p /usr/local/libexec
 as_root install -o root -g root -m 0700 \
   /opt/rproxy/scripts/nginx-config-helper.sh "$HELPER_INSTALL_PATH"
 success "Helper installed to $HELPER_INSTALL_PATH (root:root, 0700)"

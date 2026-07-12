@@ -50,6 +50,7 @@ Think Nginx Proxy Manager, but without the Docker dependency.
 ### 1. Clone the repo
 
 ```bash
+sudo apt-get update
 sudo apt-get install -y git   # if git isn't installed yet
 git clone https://github.com/jongautur/rproxy.git /opt/rproxy
 ```
