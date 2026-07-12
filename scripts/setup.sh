@@ -149,11 +149,19 @@ fi
 # ── 7. acme.sh (installed as rproxy user) ────────────────────────────────────
 if [[ ! -f "${RPROXY_HOME}/.acme.sh/acme.sh" ]]; then
   info "Installing acme.sh for ${RPROXY_USER}..."
+  # get.acme.sh (this bootstrap) always treats its first argument as an
+  # "email=..." specifier, regardless of what it actually is — passing any
+  # install flag (--nocron, --noemail, etc.) as $1 gets mangled into
+  # garbage like "----nocron" and breaks the real installer. Run it with no
+  # args (no email, acme.sh's own default cron) and explicitly remove the
+  # cron job it installs afterward — renew-certs.sh below is the one cron
+  # this app actually wants managing renewals.
   as_user "$RPROXY_USER" bash -c '
     cd "$HOME"
     curl -fsSL https://get.acme.sh -o "$HOME/acme-install.sh"
-    bash "$HOME/acme-install.sh" --install-online --nocron --noemail 2>&1 || true
+    bash "$HOME/acme-install.sh" 2>&1 || true
     rm -f "$HOME/acme-install.sh"
+    [[ -f "$HOME/.acme.sh/acme.sh" ]] && "$HOME/.acme.sh/acme.sh" --uninstall-cronjob 2>&1 || true
   '
   [[ -f "${RPROXY_HOME}/.acme.sh/acme.sh" ]] \
     && success "acme.sh installed" \
