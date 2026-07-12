@@ -29,9 +29,9 @@ async function deployRedirectConfig(redirect: RedirectHost): Promise<DeployResul
   return deploy;
 }
 
-async function removeRedirectConfig(redirect: RedirectHost): Promise<void> {
+async function removeRedirectConfig(redirect: RedirectHost): Promise<DeployResult> {
   const filename = domainToRedirectFilename(redirect.sourceDomain) + ".conf";
-  await removeSiteConfig(filename);
+  return removeSiteConfig(filename);
 }
 
 export async function createRedirect(
@@ -92,10 +92,10 @@ export async function updateRedirect(
   return { redirect: updated, deploy };
 }
 
-export async function deleteRedirect(id: string, userId: string): Promise<void> {
+export async function deleteRedirect(id: string, userId: string): Promise<DeployResult> {
   const redirect = await prisma.redirectHost.findUniqueOrThrow({ where: { id } });
 
-  await removeRedirectConfig(redirect);
+  const deploy = await removeRedirectConfig(redirect);
   await prisma.redirectHost.delete({ where: { id } });
 
   await prisma.auditLog.create({
@@ -107,6 +107,8 @@ export async function deleteRedirect(id: string, userId: string): Promise<void> 
       details: JSON.stringify({ sourceDomain: redirect.sourceDomain }),
     },
   });
+
+  return deploy;
 }
 
 export async function toggleRedirect(

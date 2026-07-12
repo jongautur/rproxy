@@ -34,7 +34,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   try {
     const session = await requireAdmin();
     const { id } = await params;
-    await deleteStream(id, session.id);
-    return ok({ deleted: true });
+    const deploy = await deleteStream(id, session.id);
+    return ok({ deleted: true, nginxTest: deploy });
   } catch (e) { return fromError(e); }
 }

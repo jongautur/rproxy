@@ -34,7 +34,13 @@ validate_path_in_dir() {
   local file="$1"
   local dir="$2"
   local real
-  real="$(realpath -m "$file")"
+  # -s (--no-symlinks / --strip) only resolves "." and ".." lexically and
+  # does NOT dereference symlinks. Every entry in sites-enabled is itself a
+  # symlink into sites-available by design — plain `realpath -m` follows
+  # that symlink before the containment check, so it always resolves to
+  # sites-available and this check would reject every legitimate
+  # sites-enabled path (breaking `disable`/`remove` for every site).
+  real="$(realpath -sm "$file")"
   if [[ "$real" != "$dir/"* ]]; then
     echo "ERROR: Path $file is outside $dir" >&2
     exit 1

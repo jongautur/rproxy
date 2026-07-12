@@ -71,16 +71,18 @@ export async function updateStream(
   return { stream: updated, deploy: deployResult };
 }
 
-export async function deleteStream(id: string, userId: string): Promise<void> {
+export async function deleteStream(id: string, userId: string): Promise<DeployResult> {
   const stream = await prisma.streamHost.findUniqueOrThrow({ where: { id } });
   const filename = streamToFilename(stream.name);
 
-  await removeStreamConfig(filename);
+  const deploy = await removeStreamConfig(filename);
   await prisma.streamHost.delete({ where: { id } });
 
   await prisma.auditLog.create({
     data: { userId, action: "DELETE", entity: "StreamHost", entityId: id },
   });
+
+  return deploy;
 }
 
 export async function toggleStream(id: string, userId: string): Promise<{ stream: StreamHost; deploy: DeployResult }> {

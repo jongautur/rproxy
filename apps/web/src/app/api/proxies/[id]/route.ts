@@ -57,8 +57,13 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     const proxy = await prisma.proxyHost.findUnique({ where: { id } });
     if (!proxy) return notFound("Proxy not found");
 
-    await deleteProxy(id, session.id);
-    return ok({ message: "Proxy deleted" });
+    const deploy = await deleteProxy(id, session.id);
+    return ok({
+      message: deploy.success
+        ? "Proxy deleted"
+        : `Proxy deleted, but nginx cleanup failed: ${deploy.output}`,
+      nginxTest: deploy,
+    });
   } catch (e) {
     return fromError(e);
   }

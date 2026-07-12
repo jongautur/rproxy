@@ -50,8 +50,8 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   try {
     const session = await requireAdmin();
     const { id } = await params;
-    await deleteRedirect(id, session.id);
-    return ok({ deleted: true });
+    const deploy = await deleteRedirect(id, session.id);
+    return ok({ deleted: true, nginxResult: deploy });
   } catch (e) {
     return fromError(e);
   }

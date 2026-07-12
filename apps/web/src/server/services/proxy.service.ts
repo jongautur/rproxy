@@ -41,9 +41,9 @@ async function deployConfig(proxy: ProxyHost): Promise<DeployResult> {
   return deploy;
 }
 
-async function removeConfig(proxy: ProxyHost): Promise<void> {
+async function removeConfig(proxy: ProxyHost): Promise<DeployResult> {
   const filename = domainToFilename(proxy.domain) + ".conf";
-  await removeSiteConfig(filename);
+  return removeSiteConfig(filename);
 }
 
 export async function redeployProxy(id: string): Promise<void> {
@@ -132,10 +132,16 @@ export async function updateProxy(
   return { proxy: updated, deploy };
 }
 
-export async function deleteProxy(id: string, userId: string): Promise<void> {
+export async function deleteProxy(id: string, userId: string): Promise<DeployResult> {
   const proxy = await prisma.proxyHost.findUniqueOrThrow({ where: { id } });
 
-  await removeConfig(proxy);
+  // The DB record is deleted regardless of nginx cleanup succeeding — the
+  // admin's intent to remove this host shouldn't get stuck behind a broken
+  // nginx state. The caller surfaces `deploy` so a failure here (e.g.
+  // reload rejected by an unrelated site) is visible instead of leaving an
+  // orphaned config file with no corresponding DB row and no way to retry
+  // from the UI.
+  const deploy = await removeConfig(proxy);
 
   await prisma.proxyHost.delete({ where: { id } });
 
@@ -148,6 +154,8 @@ export async function deleteProxy(id: string, userId: string): Promise<void> {
       details: JSON.stringify({ domain: proxy.domain }),
     },
   });
+
+  return deploy;
 }
 
 export async function toggleProxy(
