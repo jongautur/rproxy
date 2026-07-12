@@ -48,8 +48,13 @@ export const proxyHostSchema = z.object({
   websocket: z.boolean().default(false),
   accessLog: z.boolean().default(true),
   errorLog: z.boolean().default(true),
-  customLocations: z.string().max(4096).optional(),
-  customServer: z.string().max(4096).optional(),
+  // validateNginxDirective is checked here (not just in the config generator)
+  // so a blocked keyword comes back as a 400 with a field error instead of
+  // surfacing as an uncaught 500 from deep inside generateNginxConfig.
+  customLocations: z.string().max(4096).optional()
+    .refine((v) => !v || validateNginxDirective(v), "Contains blocked directives or braces"),
+  customServer: z.string().max(4096).optional()
+    .refine((v) => !v || validateNginxDirective(v), "Contains blocked directives or braces"),
   customHeaders: z.record(z.string(), z.string()).optional(),
   certificateId: z.string().cuid().optional(),
   accessListId: z.string().cuid().nullable().optional(),
