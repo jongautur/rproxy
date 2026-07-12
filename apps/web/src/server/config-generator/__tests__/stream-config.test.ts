@@ -24,4 +24,17 @@ describe("generateStreamConfig — access list", () => {
     // No auth_basic — meaningless over raw TCP/UDP.
     expect(config).not.toContain("auth_basic");
   });
+
+  it("applies no restriction when the attached access list has zero IP rules", () => {
+    const config = generateStreamConfig(host, {
+      id: "al1",
+      authEnabled: false,
+      authRealm: "Restricted",
+      defaultAction: "deny",
+      authUsers: [],
+      ipRules: [],
+    });
+    expect(config).not.toContain("allow");
+    expect(config).not.toContain("deny");
+  });
 });

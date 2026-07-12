@@ -68,20 +68,22 @@ describe("generateNginxConfig — access list default action", () => {
     expect(config).not.toContain("deny all;");
   });
 
-  it("fails closed with 'deny all' when a fresh allowlist has no rules yet", () => {
+  it("applies no IP restriction when an access list has zero rules — auth-only lists must not be locked out", () => {
     const config = generateNginxConfig({
       proxy: makeProxy(),
       certificate: null,
       accessList: {
         id: "al1",
-        authEnabled: false,
+        authEnabled: true,
         authRealm: "Restricted",
         defaultAction: "deny",
-        authUsers: [],
+        authUsers: [{ id: "u1", username: "admin" }],
         ipRules: [],
       },
     });
-    expect(config).toContain("deny all;");
+    expect(config).toContain("auth_basic ");
+    expect(config).not.toContain("allow ");
+    expect(config).not.toContain("deny ");
   });
 });
 

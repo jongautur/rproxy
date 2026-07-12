@@ -208,23 +208,28 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
       lines.push(`        auth_basic "${realm}";`);
       lines.push(`        auth_basic_user_file /etc/nginx/access-lists/${al.id}.htpasswd;`);
     }
+    // The catch-all only makes sense relative to explicit rules — the UI
+    // itself hides the default-action selector until at least one rule
+    // exists, so a list with zero ipRules has no IP restriction at all
+    // (Basic Auth above still applies independently). Emitting a catch-all
+    // here regardless of rule count previously broke auth-only access
+    // lists: defaultAction defaults to "deny" in the DB, a value the admin
+    // never saw or chose, and it ended up denying every IP outright.
     if (al.ipRules.length > 0) {
       const sorted = [...al.ipRules].sort((a, b) => a.sortOrder - b.sortOrder);
       for (const rule of sorted) {
         const addr = sanitizeNginxValue(rule.address);
         if (addr) lines.push(`        ${rule.action === "allow" ? "allow" : "deny"} ${addr};`);
       }
+      // A denylist (rules that only deny specific addresses) with a
+      // hardcoded "deny all" here would block everyone, not just the
+      // listed addresses — the default action makes the catch-all match
+      // what the admin actually configured.
+      lines.push(`        ${al.defaultAction === "allow" ? "allow" : "deny"} all;`);
     }
-    // Always emit the catch-all, even with zero ipRules: defaultAction
-    // defaults to "deny" so a freshly-attached access list with no rules
-    // populated yet must fail closed (deny everyone) rather than silently
-    // allowing everyone through because there was nothing to loop over
-    // above. A denylist (rules that only deny specific addresses) with a
-    // hardcoded "deny all" here would block everyone, not just the listed
-    // addresses — the default action makes the catch-all match what the
-    // admin actually configured.
-    lines.push(`        ${al.defaultAction === "allow" ? "allow" : "deny"} all;`);
-    lines.push(``);
+    if ((al.authEnabled && al.authUsers.length > 0) || al.ipRules.length > 0) {
+      lines.push(``);
+    }
   }
 
   const isGrpc = forwardScheme === "grpc" || forwardScheme === "grpcs";

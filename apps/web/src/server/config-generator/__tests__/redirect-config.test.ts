@@ -43,4 +43,22 @@ describe("generateRedirectConfig — access list", () => {
     expect(config).toContain("allow 1.2.3.4;");
     expect(config).toContain("deny all;");
   });
+
+  it("applies no IP restriction for an auth-only access list with zero IP rules", () => {
+    const config = generateRedirectConfig({
+      redirect: makeRedirect(),
+      certificate: null,
+      accessList: {
+        id: "al1",
+        authEnabled: true,
+        authRealm: "Restricted",
+        defaultAction: "deny",
+        authUsers: [{ id: "u1", username: "admin" }],
+        ipRules: [],
+      },
+    });
+    expect(config).toContain("auth_basic ");
+    expect(config).not.toContain("allow");
+    expect(config).not.toContain("deny");
+  });
 });
