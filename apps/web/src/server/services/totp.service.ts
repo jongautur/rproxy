@@ -66,11 +66,14 @@ export function buildOtpauthUri(secret: string, username: string): string {
 }
 
 export async function generateQrSvg(otpauthUri: string): Promise<string> {
-  return QRCode.toString(otpauthUri, {
+  const svg = await QRCode.toString(otpauthUri, {
     type: "svg",
     margin: 1,
     color: { dark: "#000000", light: "#ffffff" },
   });
+  // The library omits width/height; stamp them so the SVG has a concrete
+  // intrinsic size regardless of container layout.
+  return svg.replace("<svg ", '<svg width="192" height="192" ');
 }
 
 export function verifyToken(token: string, secret: string): boolean {

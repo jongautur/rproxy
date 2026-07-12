@@ -157,7 +157,6 @@ export function TotpCard({ totpEnabled, onToggle }: Props) {
             <div
               className="mx-auto w-fit p-3 bg-white rounded-lg border border-border"
               dangerouslySetInnerHTML={{ __html: setup.qrSvg }}
-              style={{ maxWidth: 220 }}
             />
 
             <div className="space-y-1.5">
