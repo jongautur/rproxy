@@ -67,6 +67,22 @@ describe("generateNginxConfig — access list default action", () => {
     // Must not fall back to the old hardcoded behavior that blocked everyone
     expect(config).not.toContain("deny all;");
   });
+
+  it("fails closed with 'deny all' when a fresh allowlist has no rules yet", () => {
+    const config = generateNginxConfig({
+      proxy: makeProxy(),
+      certificate: null,
+      accessList: {
+        id: "al1",
+        authEnabled: false,
+        authRealm: "Restricted",
+        defaultAction: "deny",
+        authUsers: [],
+        ipRules: [],
+      },
+    });
+    expect(config).toContain("deny all;");
+  });
 });
 
 describe("generateNginxConfig — custom directive validation", () => {
