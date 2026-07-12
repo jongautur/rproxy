@@ -104,29 +104,44 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
     } catch { /* ignore */ }
   }
 
+  function populateFromProxy(p: ProxyHostWithCert) {
+    const fp = String(p.forwardPort);
+    setForm({
+      domain: p.domain,
+      forwardScheme: (p.forwardScheme ?? "http") as "http" | "https" | "grpc" | "grpcs",
+      forwardHost: p.forwardHost,
+      forwardPort: fp,
+      listenPort: String(p.listenPort),
+      httpsPort: String(p.httpsPort),
+      sslEnabled: p.sslEnabled,
+      forceHttps: p.forceHttps,
+      http2: p.http2,
+      websocket: p.websocket,
+      accessLog: p.accessLog,
+      errorLog: p.errorLog,
+      customLocations: p.customLocations ?? "",
+      customServer: p.customServer ?? "",
+      certificateId: p.certificateId ?? "",
+      accessListId: (p as { accessListId?: string | null }).accessListId ?? null,
+    });
+    setPortMode(fp === "80" ? "80" : fp === "443" ? "443" : "custom");
+  }
+
   useEffect(() => {
     if (open) {
       if (proxy) {
-        const fp = String(proxy.forwardPort);
-        setForm({
-          domain: proxy.domain,
-          forwardScheme: (proxy.forwardScheme ?? "http") as "http" | "https" | "grpc" | "grpcs",
-          forwardHost: proxy.forwardHost,
-          forwardPort: fp,
-          listenPort: String(proxy.listenPort),
-          httpsPort: String(proxy.httpsPort),
-          sslEnabled: proxy.sslEnabled,
-          forceHttps: proxy.forceHttps,
-          http2: proxy.http2,
-          websocket: proxy.websocket,
-          accessLog: proxy.accessLog,
-          errorLog: proxy.errorLog,
-          customLocations: proxy.customLocations ?? "",
-          customServer: proxy.customServer ?? "",
-          certificateId: proxy.certificateId ?? "",
-          accessListId: (proxy as { accessListId?: string | null }).accessListId ?? null,
-        });
-        setPortMode(fp === "80" ? "80" : fp === "443" ? "443" : "custom");
+        // The row handed in by the table can be stale (e.g. attached from
+        // a background tab, or the list hasn't refetched since another
+        // dialog changed this record) — since this form always submits
+        // every field, saving on stale data would silently overwrite
+        // whatever changed elsewhere (like an access list attachment) back
+        // to the old value. Render the passed-in row immediately for a
+        // snappy open, then reconcile against the current DB record.
+        populateFromProxy(proxy);
+        fetch(`/api/proxies/${proxy.id}`)
+          .then((r) => r.json() as Promise<{ success: boolean; data: ProxyHostWithCert }>)
+          .then((j) => { if (j.success) populateFromProxy(j.data); })
+          .catch(() => {});
       } else {
         setForm(DEFAULT);
         setPortMode("80");
