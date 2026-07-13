@@ -22,7 +22,12 @@ command -v pm2   &>/dev/null || die "pm2 not found — run setup.sh first"
 # ── Install dependencies ──────────────────────────────────────────────────────
 info "Installing dependencies..."
 cd "$APP_DIR"
-pnpm install --frozen-lockfile
+# Lower network concurrency than pnpm's default (16) — on a small VPS/LXC
+# container (this project's common target), downloading and extracting
+# several large native binaries (Next.js's SWC compiler, sharp, etc.) in
+# parallel can spike memory enough for the OOM killer to take out the
+# install outright. Slower, but it actually finishes on a 512MB–1GB box.
+pnpm install --frozen-lockfile --network-concurrency=4
 success "Dependencies installed"
 
 # ── Database ──────────────────────────────────────────────────────────────────

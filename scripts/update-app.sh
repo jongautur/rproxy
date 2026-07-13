@@ -35,7 +35,10 @@ if ! git diff --quiet "$OLD_HEAD" "$NEW_HEAD" -- scripts/nginx-config-helper.sh;
 fi
 
 cd "$APP_DIR"
-pnpm install --frozen-lockfile
+# See install-app.sh — lower concurrency avoids OOM-killing the install on
+# small VPS/LXC boxes when several large native binaries download/extract
+# in parallel.
+pnpm install --frozen-lockfile --network-concurrency=4
 
 set -a; source "$ENV_FILE"; set +a
 pnpm run prisma:push
