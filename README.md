@@ -40,6 +40,7 @@ Think Nginx Proxy Manager, but without the Docker dependency.
 ## Requirements
 
 - Ubuntu 22.04 / Debian 12 (or similar)
+- **1GB RAM / 2 cores minimum** — `pnpm install` downloads and extracts several large native binaries (Next.js's SWC compiler, `sharp`, etc.); on a smaller LXC container this can trigger an OOM kill partway through `install-app.sh`
 - A non-root user with `sudo` access
 - Internet access (for Let's Encrypt, NodeSource, acme.sh)
 
