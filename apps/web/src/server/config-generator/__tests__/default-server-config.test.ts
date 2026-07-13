@@ -32,4 +32,19 @@ describe("generateDefaultServerConfig", () => {
     const config = generateDefaultServerConfig({ mode: "no_response" });
     expect(config).toContain("return 444;");
   });
+
+  it("omits the 443 default_server block when no cert is available", () => {
+    const config = generateDefaultServerConfig({ mode: "nginx_default", hasCert: false });
+    expect(config).not.toContain("listen 443");
+    expect((config.match(/^server \{/gm) ?? []).length).toBe(1);
+  });
+
+  it("adds a matching 443 default_server block when a cert is available", () => {
+    const config = generateDefaultServerConfig({ mode: "no_response", hasCert: true });
+    expect(config).toContain("listen 443 ssl default_server;");
+    expect(config).toContain("ssl_certificate ");
+    expect((config.match(/^server \{/gm) ?? []).length).toBe(2);
+    // Same behavior on both ports, not just port 80.
+    expect((config.match(/return 444;/g) ?? []).length).toBe(2);
+  });
 });
