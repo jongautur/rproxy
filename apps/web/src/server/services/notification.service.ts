@@ -165,7 +165,14 @@ export async function updateChannel(
     const strConfig = Object.fromEntries(
       Object.entries(config).map(([k, v]) => [k, String(v)])
     );
-    data.config = encryptJson(strConfig);
+    // Merge over the existing config rather than replacing it wholesale —
+    // the edit UI omits masked secret fields (password/secret/accessToken)
+    // that weren't changed, since their plaintext is never sent back to the
+    // client after creation. A merge preserves those; a replace would wipe
+    // them to the empty string.
+    const existing = await prisma.notificationChannel.findUniqueOrThrow({ where: { id } });
+    const existingConfig = decryptJson(existing.config);
+    data.config = encryptJson({ ...existingConfig, ...strConfig });
   }
   await prisma.notificationChannel.update({ where: { id }, data });
 }

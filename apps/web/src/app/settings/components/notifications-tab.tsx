@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, Loader2, Send, Globe, Mail, Home } from "lucide-react";
+import { Plus, Trash2, Loader2, Send, Globe, Mail, Home, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,12 +32,14 @@ interface Channel {
 const EMAIL_EMPTY = { label: "Email", host: "", port: "587", secure: "false", username: "", password: "", from: "", to: "" };
 const WEBHOOK_EMPTY = { label: "Webhook", url: "", secret: "" };
 const HOME_ASSISTANT_EMPTY = { label: "Home Assistant", url: "", accessToken: "", notificationService: "" };
+const MASKED = "••••••••";
 
 export function NotificationsTab() {
   const { toast } = useToast();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [addOpen, setAddOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [addType, setAddType] = useState<"email" | "webhook" | "home_assistant">("email");
   const [emailForm, setEmailForm] = useState({ ...EMAIL_EMPTY });
   const [webhookForm, setWebhookForm] = useState({ ...WEBHOOK_EMPTY });
@@ -95,25 +97,71 @@ export function NotificationsTab() {
     finally { setTestingId(null); }
   }
 
-  async function handleAdd(e: React.FormEvent) {
+  const formType = editingChannel?.type ?? addType;
+
+  function openAdd() {
+    setEditingChannel(null);
+    setAddType("email");
+    setEmailForm({ ...EMAIL_EMPTY });
+    setWebhookForm({ ...WEBHOOK_EMPTY });
+    setHomeAssistantForm({ ...HOME_ASSISTANT_EMPTY });
+    setDialogOpen(true);
+  }
+
+  function openEdit(ch: Channel) {
+    setEditingChannel(ch);
+    if (ch.type === "email") {
+      setEmailForm({ ...EMAIL_EMPTY, ...ch.config, label: ch.label });
+    } else if (ch.type === "home_assistant") {
+      setHomeAssistantForm({ ...HOME_ASSISTANT_EMPTY, ...ch.config, label: ch.label });
+    } else {
+      setWebhookForm({ ...WEBHOOK_EMPTY, ...ch.config, label: ch.label });
+    }
+    setDialogOpen(true);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
-      const body = addType === "email"
-        ? { type: "email", ...emailForm, port: parseInt(emailForm.port), secure: emailForm.secure === "true" }
-        : addType === "home_assistant"
-        ? { type: "home_assistant", ...homeAssistantForm }
-        : { type: "webhook", ...webhookForm };
+      let config: Record<string, unknown>;
+      if (formType === "email") {
+        config = { ...emailForm, port: parseInt(emailForm.port), secure: emailForm.secure === "true" };
+      } else if (formType === "home_assistant") {
+        config = { ...homeAssistantForm };
+      } else {
+        config = { ...webhookForm };
+      }
 
-      const res = await fetch("/api/settings/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      let res: Response;
+      if (editingChannel) {
+        // Secret-ish fields are pre-filled with the masked placeholder from
+        // the server (their plaintext is never sent back). If left
+        // untouched, drop them from the payload so the merge on the
+        // backend keeps the existing value instead of overwriting it with
+        // the literal mask string.
+        const { label, ...rest } = config;
+        for (const key of ["password", "secret", "accessToken"]) {
+          if (rest[key] === MASKED) delete rest[key];
+        }
+        res = await fetch(`/api/settings/notifications/${editingChannel.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label, enabled: editingChannel.enabled, config: rest }),
+        });
+      } else {
+        res = await fetch("/api/settings/notifications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: formType, ...config }),
+        });
+      }
+
       const json = await res.json() as { success: boolean; error?: string };
       if (!json.success) { toast({ variant: "destructive", title: "Failed", description: json.error }); return; }
-      toast({ title: "Notification channel added" });
-      setAddOpen(false);
+      toast({ title: editingChannel ? "Channel updated" : "Notification channel added" });
+      setDialogOpen(false);
+      setEditingChannel(null);
       setEmailForm({ ...EMAIL_EMPTY });
       setWebhookForm({ ...WEBHOOK_EMPTY });
       setHomeAssistantForm({ ...HOME_ASSISTANT_EMPTY });
@@ -128,7 +176,7 @@ export function NotificationsTab() {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Notification Channels</CardTitle>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Button size="sm" onClick={openAdd}>
               <Plus className="w-4 h-4 mr-2" />
               Add Channel
             </Button>
@@ -178,6 +226,12 @@ export function NotificationsTab() {
                     <Switch checked={ch.enabled} onCheckedChange={() => handleToggle(ch)} />
                     <Button
                       size="icon-sm" variant="ghost"
+                      onClick={() => openEdit(ch)}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm" variant="ghost"
                       className="hover:text-destructive hover:bg-destructive/10"
                       onClick={() => setDeleteTarget(ch)}
                     >
@@ -191,16 +245,20 @@ export function NotificationsTab() {
         </CardContent>
       </Card>
 
-      {/* Add channel dialog */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      {/* Add/Edit channel dialog */}
+      <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) setEditingChannel(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Notification Channel</DialogTitle>
+            <DialogTitle>{editingChannel ? "Edit Notification Channel" : "Add Notification Channel"}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleAdd} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label>Channel type</Label>
-              <Select value={addType} onValueChange={(v) => setAddType(v as "email" | "webhook" | "home_assistant")}>
+              <Select
+                value={formType}
+                onValueChange={(v) => setAddType(v as "email" | "webhook" | "home_assistant")}
+                disabled={!!editingChannel}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="email">Email (SMTP)</SelectItem>
@@ -210,7 +268,7 @@ export function NotificationsTab() {
               </Select>
             </div>
 
-            {addType === "email" ? (
+            {formType === "email" ? (
               <>
                 <div className="space-y-1.5">
                   <Label>Label</Label>
@@ -232,7 +290,7 @@ export function NotificationsTab() {
                     <Input value={emailForm.username} onChange={(e) => setEmailForm((p) => ({ ...p, username: e.target.value }))} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Password</Label>
+                    <Label>Password {editingChannel && <span className="text-muted-foreground font-normal">— leave unchanged to keep current</span>}</Label>
                     <Input type="password" value={emailForm.password} onChange={(e) => setEmailForm((p) => ({ ...p, password: e.target.value }))} />
                   </div>
                 </div>
@@ -255,7 +313,7 @@ export function NotificationsTab() {
                   <Label htmlFor="secure">TLS (port 465)</Label>
                 </div>
               </>
-            ) : addType === "home_assistant" ? (
+            ) : formType === "home_assistant" ? (
               <>
                 <div className="space-y-1.5">
                   <Label>Label</Label>
@@ -266,8 +324,8 @@ export function NotificationsTab() {
                   <Input type="url" placeholder="https://homeassistant.local:8123" value={homeAssistantForm.url} onChange={(e) => setHomeAssistantForm((p) => ({ ...p, url: e.target.value }))} required />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Long-Lived Access Token</Label>
-                  <Input type="password" placeholder="Profile → Security → Long-lived access tokens" value={homeAssistantForm.accessToken} onChange={(e) => setHomeAssistantForm((p) => ({ ...p, accessToken: e.target.value }))} required />
+                  <Label>Long-Lived Access Token {editingChannel && <span className="text-muted-foreground font-normal">— leave unchanged to keep current</span>}</Label>
+                  <Input type="password" placeholder="Profile → Security → Long-lived access tokens" value={homeAssistantForm.accessToken} onChange={(e) => setHomeAssistantForm((p) => ({ ...p, accessToken: e.target.value }))} required={!editingChannel} />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Notification Service <span className="text-muted-foreground font-normal">— optional</span></Label>
@@ -288,17 +346,17 @@ export function NotificationsTab() {
                   <Input type="url" placeholder="https://hooks.example.com/..." value={webhookForm.url} onChange={(e) => setWebhookForm((p) => ({ ...p, url: e.target.value }))} required />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Secret <span className="text-muted-foreground font-normal">— optional</span></Label>
+                  <Label>Secret <span className="text-muted-foreground font-normal">— optional{editingChannel && ", leave unchanged to keep current"}</span></Label>
                   <Input placeholder="Sent as X-Webhook-Secret header" value={webhookForm.secret} onChange={(e) => setWebhookForm((p) => ({ ...p, secret: e.target.value }))} />
                 </div>
               </>
             )}
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setEditingChannel(null); }}>Cancel</Button>
               <Button type="submit" disabled={saving}>
                 {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Add channel
+                {editingChannel ? "Save changes" : "Add channel"}
               </Button>
             </DialogFooter>
           </form>

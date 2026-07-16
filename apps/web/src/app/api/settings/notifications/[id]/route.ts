@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { updateChannel, testChannel } from "@/server/services/notification.service";
-import { ok, notFound, fromError } from "@/lib/api-response";
+import { ok, notFound, badRequest, fromError } from "@/lib/api-response";
+import { configSchemaFor, CHANNEL_TYPES, type ChannelType } from "@/lib/notification-config";
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -10,10 +11,19 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     await requireAdmin();
     const { id } = await params;
-    const body = await req.json() as { label?: string; enabled?: boolean; config?: Record<string, string | number | boolean> };
+    const body = await req.json() as { label?: string; enabled?: boolean; config?: Record<string, unknown> };
     const channel = await prisma.notificationChannel.findUnique({ where: { id } });
     if (!channel) return notFound();
-    await updateChannel(id, body.label ?? channel.label, body.enabled ?? channel.enabled, body.config);
+
+    let config: Record<string, string | number | boolean> | undefined;
+    if (body.config) {
+      if (!CHANNEL_TYPES.includes(channel.type as ChannelType)) return badRequest("Unknown channel type");
+      const parsed = configSchemaFor(channel.type as ChannelType).partial().safeParse(body.config);
+      if (!parsed.success) return badRequest("Validation failed", parsed.error.flatten().fieldErrors);
+      config = parsed.data as Record<string, string | number | boolean>;
+    }
+
+    await updateChannel(id, body.label ?? channel.label, body.enabled ?? channel.enabled, config);
     return ok({ updated: true });
   } catch (e) {
     return fromError(e);

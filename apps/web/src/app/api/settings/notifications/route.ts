@@ -5,33 +5,22 @@ import { createChannel } from "@/server/services/notification.service";
 import { decryptJson } from "@/lib/encrypt";
 import { ok, created, badRequest, fromError } from "@/lib/api-response";
 import { z } from "zod";
+import { emailConfigSchema, webhookConfigSchema, homeAssistantConfigSchema } from "@/lib/notification-config";
 
 const emailSchema = z.object({
   type: z.literal("email"),
   label: z.string().max(64).default("Email"),
-  host: z.string().min(1),
-  port: z.number().int().min(1).max(65535).default(587),
-  secure: z.boolean().default(false),
-  username: z.string().default(""),
-  password: z.string().default(""),
-  from: z.string().email(),
-  to: z.string().email(),
-});
+}).merge(emailConfigSchema);
 
 const webhookSchema = z.object({
   type: z.literal("webhook"),
   label: z.string().max(64).default("Webhook"),
-  url: z.string().url(),
-  secret: z.string().max(256).default(""),
-});
+}).merge(webhookConfigSchema);
 
 const homeAssistantSchema = z.object({
   type: z.literal("home_assistant"),
   label: z.string().max(64).default("Home Assistant"),
-  url: z.string().url(),
-  accessToken: z.string().min(1),
-  notificationService: z.string().max(128).default(""),
-});
+}).merge(homeAssistantConfigSchema);
 
 export async function GET() {
   try {
