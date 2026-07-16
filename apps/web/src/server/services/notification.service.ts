@@ -23,6 +23,11 @@ interface WebhookConfig {
   secret?: string;
 }
 
+interface HomeAssistantConfig {
+  url: string;
+  accessToken: string;
+}
+
 async function sendEmail(config: EmailConfig, event: NotificationEvent): Promise<void> {
   const transport = nodemailer.createTransport({
     host: config.host,
@@ -54,6 +59,26 @@ async function sendWebhook(config: WebhookConfig, event: NotificationEvent): Pro
   if (!res.ok) throw new Error(`Webhook returned ${res.status}`);
 }
 
+async function sendHomeAssistant(config: HomeAssistantConfig, event: NotificationEvent): Promise<void> {
+  const baseUrl = config.url.trim().replace(/\/+$/, "");
+
+  const res = await fetch(`${baseUrl}/api/services/notify/notify`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: event.title,
+      message: event.body,
+      data: { channel: "rproxy" },
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) throw new Error(`Home Assistant returned ${res.status}`);
+}
+
 export async function fireNotification(event: NotificationEvent): Promise<void> {
   const channels = await prisma.notificationChannel.findMany({ where: { enabled: true } });
   const errors: string[] = [];
@@ -65,6 +90,8 @@ export async function fireNotification(event: NotificationEvent): Promise<void> 
         await sendEmail(config as unknown as EmailConfig, event);
       } else if (channel.type === "webhook") {
         await sendWebhook(config as unknown as WebhookConfig, event);
+      } else if (channel.type === "home_assistant") {
+        await sendHomeAssistant(config as unknown as HomeAssistantConfig, event);
       }
     } catch (e) {
       errors.push(`${channel.type}(${channel.id}): ${e instanceof Error ? e.message : String(e)}`);
@@ -87,6 +114,8 @@ export async function testChannel(id: string): Promise<{ success: boolean; error
     };
     if (channel.type === "email") {
       await sendEmail(config as unknown as EmailConfig, event);
+    } else if (channel.type === "home_assistant") {
+      await sendHomeAssistant(config as unknown as HomeAssistantConfig, event);
     } else {
       await sendWebhook(config as unknown as WebhookConfig, event);
     }
@@ -97,7 +126,7 @@ export async function testChannel(id: string): Promise<{ success: boolean; error
 }
 
 export async function createChannel(
-  type: "email" | "webhook",
+  type: "email" | "webhook" | "home_assistant",
   label: string,
   config: Record<string, string | number | boolean>
 ): Promise<void> {

@@ -25,6 +25,13 @@ const webhookSchema = z.object({
   secret: z.string().max(256).default(""),
 });
 
+const homeAssistantSchema = z.object({
+  type: z.literal("home_assistant"),
+  label: z.string().max(64).default("Home Assistant"),
+  url: z.string().url(),
+  accessToken: z.string().min(1),
+});
+
 export async function GET() {
   try {
     await requireSession();
@@ -37,6 +44,8 @@ export async function GET() {
         config = { ...config, password: config.password ? "••••••••" : "" };
       } else if (ch.type === "webhook") {
         config = { ...config, secret: config.secret ? "••••••••" : "" };
+      } else if (ch.type === "home_assistant") {
+        config = { ...config, accessToken: config.accessToken ? "••••••••" : "" };
       }
       return { ...ch, config };
     });
@@ -51,11 +60,16 @@ export async function POST(req: NextRequest) {
     await requireAdmin();
     const body = await req.json() as unknown;
 
-    const base = z.object({ type: z.enum(["email", "webhook"]) }).safeParse(body);
-    if (!base.success) return badRequest("type must be email or webhook");
+    const base = z.object({ type: z.enum(["email", "webhook", "home_assistant"]) }).safeParse(body);
+    if (!base.success) return badRequest("type must be email, webhook, or home_assistant");
 
     if (base.data.type === "email") {
       const parsed = emailSchema.safeParse(body);
+      if (!parsed.success) return badRequest("Validation failed", parsed.error.flatten().fieldErrors);
+      const { type, label, ...config } = parsed.data;
+      await createChannel(type, label, config as Record<string, string | number | boolean>);
+    } else if (base.data.type === "home_assistant") {
+      const parsed = homeAssistantSchema.safeParse(body);
       if (!parsed.success) return badRequest("Validation failed", parsed.error.flatten().fieldErrors);
       const { type, label, ...config } = parsed.data;
       await createChannel(type, label, config as Record<string, string | number | boolean>);

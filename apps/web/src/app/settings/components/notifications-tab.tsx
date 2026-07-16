@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, Loader2, Send, Globe, Mail } from "lucide-react";
+import { Plus, Trash2, Loader2, Send, Globe, Mail, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,7 +23,7 @@ import { useToast } from "@/components/ui/use-toast";
 
 interface Channel {
   id: string;
-  type: "email" | "webhook";
+  type: "email" | "webhook" | "home_assistant";
   label: string;
   enabled: boolean;
   config: Record<string, string>;
@@ -31,15 +31,17 @@ interface Channel {
 
 const EMAIL_EMPTY = { label: "Email", host: "", port: "587", secure: "false", username: "", password: "", from: "", to: "" };
 const WEBHOOK_EMPTY = { label: "Webhook", url: "", secret: "" };
+const HOME_ASSISTANT_EMPTY = { label: "Home Assistant", url: "", accessToken: "" };
 
 export function NotificationsTab() {
   const { toast } = useToast();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [addType, setAddType] = useState<"email" | "webhook">("email");
+  const [addType, setAddType] = useState<"email" | "webhook" | "home_assistant">("email");
   const [emailForm, setEmailForm] = useState({ ...EMAIL_EMPTY });
   const [webhookForm, setWebhookForm] = useState({ ...WEBHOOK_EMPTY });
+  const [homeAssistantForm, setHomeAssistantForm] = useState({ ...HOME_ASSISTANT_EMPTY });
   const [saving, setSaving] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Channel | null>(null);
@@ -99,6 +101,8 @@ export function NotificationsTab() {
     try {
       const body = addType === "email"
         ? { type: "email", ...emailForm, port: parseInt(emailForm.port), secure: emailForm.secure === "true" }
+        : addType === "home_assistant"
+        ? { type: "home_assistant", ...homeAssistantForm }
         : { type: "webhook", ...webhookForm };
 
       const res = await fetch("/api/settings/notifications", {
@@ -112,6 +116,7 @@ export function NotificationsTab() {
       setAddOpen(false);
       setEmailForm({ ...EMAIL_EMPTY });
       setWebhookForm({ ...WEBHOOK_EMPTY });
+      setHomeAssistantForm({ ...HOME_ASSISTANT_EMPTY });
       void fetch_();
     } catch { toast({ variant: "destructive", title: "Save failed" }); }
     finally { setSaving(false); }
@@ -144,6 +149,8 @@ export function NotificationsTab() {
                   <div className="flex items-center gap-3">
                     {ch.type === "email"
                       ? <Mail className="w-4 h-4 text-primary" />
+                      : ch.type === "home_assistant"
+                      ? <Home className="w-4 h-4 text-primary" />
                       : <Globe className="w-4 h-4 text-primary" />
                     }
                     <div>
@@ -193,11 +200,12 @@ export function NotificationsTab() {
           <form onSubmit={handleAdd} className="space-y-4">
             <div className="space-y-1.5">
               <Label>Channel type</Label>
-              <Select value={addType} onValueChange={(v) => setAddType(v as "email" | "webhook")}>
+              <Select value={addType} onValueChange={(v) => setAddType(v as "email" | "webhook" | "home_assistant")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="email">Email (SMTP)</SelectItem>
                   <SelectItem value="webhook">Webhook (HTTP POST)</SelectItem>
+                  <SelectItem value="home_assistant">Home Assistant</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -246,6 +254,24 @@ export function NotificationsTab() {
                   />
                   <Label htmlFor="secure">TLS (port 465)</Label>
                 </div>
+              </>
+            ) : addType === "home_assistant" ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Label</Label>
+                  <Input value={homeAssistantForm.label} onChange={(e) => setHomeAssistantForm((p) => ({ ...p, label: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Home Assistant URL</Label>
+                  <Input type="url" placeholder="https://homeassistant.local:8123" value={homeAssistantForm.url} onChange={(e) => setHomeAssistantForm((p) => ({ ...p, url: e.target.value }))} required />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Long-Lived Access Token</Label>
+                  <Input type="password" placeholder="Profile → Security → Long-lived access tokens" value={homeAssistantForm.accessToken} onChange={(e) => setHomeAssistantForm((p) => ({ ...p, accessToken: e.target.value }))} required />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Sends via Home Assistant&apos;s <code className="bg-muted px-1 rounded">notify.notify</code> service — broadcasts to whatever notify targets you have configured there.
+                </p>
               </>
             ) : (
               <>
