@@ -6,6 +6,10 @@ export interface NotificationEvent {
   type: "host_down" | "host_up" | "cert_expiring" | "cert_renewal_failed";
   title: string;
   body: string;
+  /** Domain/host this event is about, if any — passed through to providers that support automation filtering (e.g. Home Assistant). */
+  hostName?: string;
+  /** 0=down, 1=up — set only for host_down/host_up, matching the uptime-kuma convention Home Assistant automations expect. */
+  status?: 0 | 1;
 }
 
 interface EmailConfig {
@@ -26,6 +30,8 @@ interface WebhookConfig {
 interface HomeAssistantConfig {
   url: string;
   accessToken: string;
+  /** notify.<service> to call — defaults to "notify" (broadcasts to all configured targets) if blank. */
+  notificationService?: string;
 }
 
 async function sendEmail(config: EmailConfig, event: NotificationEvent): Promise<void> {
@@ -61,18 +67,28 @@ async function sendWebhook(config: WebhookConfig, event: NotificationEvent): Pro
 
 async function sendHomeAssistant(config: HomeAssistantConfig, event: NotificationEvent): Promise<void> {
   const baseUrl = config.url.trim().replace(/\/+$/, "");
+  const service = config.notificationService?.trim() || "notify";
 
-  const res = await fetch(`${baseUrl}/api/services/notify/notify`, {
+  // Mirrors uptime-kuma's home-assistant provider: persistent_notification
+  // takes no `data` payload, everything else gets channel/status/name so
+  // Home Assistant automations (triggered on the call_service event) can
+  // filter by monitor and down/up state.
+  const payload: Record<string, unknown> = { title: event.title, message: event.body };
+  if (service !== "persistent_notification") {
+    payload.data = {
+      channel: "rproxy",
+      ...(event.status !== undefined && { status: event.status }),
+      ...(event.hostName && { name: event.hostName }),
+    };
+  }
+
+  const res = await fetch(`${baseUrl}/api/services/notify/${service}`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${config.accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      title: event.title,
-      message: event.body,
-      data: { channel: "rproxy" },
-    }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10_000),
   });
 

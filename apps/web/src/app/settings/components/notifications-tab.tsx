@@ -31,7 +31,7 @@ interface Channel {
 
 const EMAIL_EMPTY = { label: "Email", host: "", port: "587", secure: "false", username: "", password: "", from: "", to: "" };
 const WEBHOOK_EMPTY = { label: "Webhook", url: "", secret: "" };
-const HOME_ASSISTANT_EMPTY = { label: "Home Assistant", url: "", accessToken: "" };
+const HOME_ASSISTANT_EMPTY = { label: "Home Assistant", url: "", accessToken: "", notificationService: "" };
 
 export function NotificationsTab() {
   const { toast } = useToast();
@@ -269,9 +269,13 @@ export function NotificationsTab() {
                   <Label>Long-Lived Access Token</Label>
                   <Input type="password" placeholder="Profile → Security → Long-lived access tokens" value={homeAssistantForm.accessToken} onChange={(e) => setHomeAssistantForm((p) => ({ ...p, accessToken: e.target.value }))} required />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Sends via Home Assistant&apos;s <code className="bg-muted px-1 rounded">notify.notify</code> service — broadcasts to whatever notify targets you have configured there.
-                </p>
+                <div className="space-y-1.5">
+                  <Label>Notification Service <span className="text-muted-foreground font-normal">— optional</span></Label>
+                  <Input placeholder="default: notify all devices" value={homeAssistantForm.notificationService} onChange={(e) => setHomeAssistantForm((p) => ({ ...p, notificationService: e.target.value }))} />
+                  <p className="text-xs text-muted-foreground">
+                    Find device-specific services under Developer Tools → Services in Home Assistant, search &quot;notify&quot;. Leave blank to notify every configured target.
+                  </p>
+                </div>
               </>
             ) : (
               <>

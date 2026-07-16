@@ -100,12 +100,16 @@ export async function recordHealthCheck(proxyId: string, result: ProbeResult): P
         type: "host_down",
         title: `${domain} is DOWN`,
         body: `Proxy host ${domain} is no longer reachable.${result.error ? "\nError: " + result.error : ""}`,
+        hostName: domain,
+        status: 0,
       });
     } else if (result.status === "UP") {
       void fireNotification({
         type: "host_up",
         title: `${domain} recovered`,
         body: `Proxy host ${domain} is back online.${result.responseTime ? " Response time: " + result.responseTime + "ms" : ""}`,
+        hostName: domain,
+        status: 1,
       });
     }
   }

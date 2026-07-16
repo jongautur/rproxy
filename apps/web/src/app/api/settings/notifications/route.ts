@@ -30,6 +30,7 @@ const homeAssistantSchema = z.object({
   label: z.string().max(64).default("Home Assistant"),
   url: z.string().url(),
   accessToken: z.string().min(1),
+  notificationService: z.string().max(128).default(""),
 });
 
 export async function GET() {
