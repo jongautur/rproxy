@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, RefreshCw, Globe, CornerUpRight, Network } from "lucide-react";
+import { Plus, RefreshCw, Globe, CornerUpRight, Network, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ProxyTable } from "./proxy-table";
@@ -30,6 +31,7 @@ export function ProxiesClient() {
   const [proxyData, setProxyData] = useState<PaginatedProxies | null>(null);
   const [proxyLoading, setProxyLoading] = useState(true);
   const [proxyPage, setProxyPage] = useState(1);
+  const [proxySearch, setProxySearch] = useState("");
   const [proxyDialogOpen, setProxyDialogOpen] = useState(false);
   const [editProxy, setEditProxy] = useState<ProxyHostWithCert | null>(null);
 
@@ -52,7 +54,11 @@ export function ProxiesClient() {
   const fetchProxies = useCallback(async () => {
     setProxyLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(proxyPage), perPage: "20" });
+      const params = new URLSearchParams({
+        page: String(proxyPage),
+        perPage: "20",
+        ...(proxySearch && { search: proxySearch }),
+      });
       const res = await fetch(`/api/proxies?${params}`);
       const json = await res.json() as { success: boolean; data: PaginatedProxies };
       if (json.success) setProxyData(json.data);
@@ -61,7 +67,7 @@ export function ProxiesClient() {
     } finally {
       setProxyLoading(false);
     }
-  }, [proxyPage, toast]);
+  }, [proxyPage, proxySearch, toast]);
 
   // ── Fetch redirects ──────────────────────────────────────────────────────────
   const fetchRedirects = useCallback(async () => {
@@ -90,7 +96,10 @@ export function ProxiesClient() {
     }
   }, [toast]);
 
-  useEffect(() => { void fetchProxies(); }, [fetchProxies]);
+  useEffect(() => {
+    const id = setTimeout(() => void fetchProxies(), proxySearch ? 300 : 0);
+    return () => clearTimeout(id);
+  }, [fetchProxies, proxySearch]);
   useEffect(() => { void fetchRedirects(); }, [fetchRedirects]);
   useEffect(() => { void fetchStreams(); }, [fetchStreams]);
 
@@ -178,7 +187,16 @@ export function ProxiesClient() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="proxy" className="mt-4">
+        <TabsContent value="proxy" className="mt-4 space-y-4">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search domain or forward host..."
+              value={proxySearch}
+              onChange={(e) => { setProxySearch(e.target.value); setProxyPage(1); }}
+              className="pl-9"
+            />
+          </div>
           <ProxyTable
             data={proxyData}
             loading={proxyLoading}

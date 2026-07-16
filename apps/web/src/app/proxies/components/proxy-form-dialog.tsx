@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Loader2, CheckCircle2, XCircle, ChevronDown, ChevronUp, PlusCircle } from "lucide-react";
+import { useState, useEffect, type ReactNode } from "react";
+import { Loader2, CheckCircle2, XCircle, ChevronDown, ChevronUp, PlusCircle, X } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -19,8 +19,89 @@ import { cn, daysUntil } from "@/lib/utils";
 import type { ProxyHostWithCert } from "@/types/proxy";
 import type { AccessListWithRelations } from "@/types/access-list";
 import { IssueCertDialog } from "@/app/certificates/components/issue-cert-dialog";
+import {
+  LOCATION_DIRECTIVE_PRESETS, SERVER_DIRECTIVE_PRESETS,
+  parseDirectiveBlob, serializeDirectiveRows,
+  type DirectivePreset, type DirectiveRow,
+} from "@/lib/directive-presets";
 
 interface CertOption { id: string; domain: string; expiresAt: string | null; }
+
+function DirectiveEasySection({
+  title, description, presets, rows, leftover, onChange,
+}: {
+  title: string;
+  description: ReactNode;
+  presets: DirectivePreset[];
+  rows: DirectiveRow[];
+  leftover: string[];
+  onChange: (rows: DirectiveRow[]) => void;
+}) {
+  function updateRow(id: string, patch: Partial<DirectiveRow>) {
+    onChange(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+  function removeRow(id: string) {
+    onChange(rows.filter((r) => r.id !== id));
+  }
+  function addRow() {
+    onChange([
+      ...rows,
+      { id: `row-${Date.now()}-${Math.random().toString(36).slice(2)}`, directive: presets[0]?.value ?? "", value: "" },
+    ]);
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label>{title}</Label>
+      <p className="text-xs text-muted-foreground">{description}</p>
+      <div className="space-y-2">
+        {rows.map((row) => {
+          const preset = presets.find((p) => p.value === row.directive);
+          return (
+            <div key={row.id} className="space-y-1">
+              <div className="flex gap-2 items-center">
+                <Select value={row.directive} onValueChange={(v) => updateRow(row.id, { directive: v })}>
+                  <SelectTrigger className="w-52 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {presets.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={row.value}
+                  onChange={(e) => updateRow(row.id, { value: e.target.value })}
+                  placeholder={preset?.placeholder}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeRow(row.id)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              {preset && <p className="text-xs text-muted-foreground pl-1">{preset.hint}</p>}
+            </div>
+          );
+        })}
+      </div>
+      <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addRow}>
+        <PlusCircle className="w-3.5 h-3.5" /> Add Directive
+      </Button>
+      {leftover.length > 0 && (
+        <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-xs text-muted-foreground">
+          {leftover.length} line{leftover.length !== 1 ? "s" : ""} not representable in Easy mode — preserved as-is. Switch to Advanced to edit.
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   open: boolean;
@@ -81,6 +162,10 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<NginxTestResult | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [locRows, setLocRows] = useState<DirectiveRow[]>([]);
+  const [locLeftover, setLocLeftover] = useState<string[]>([]);
+  const [srvRows, setSrvRows] = useState<DirectiveRow[]>([]);
+  const [srvLeftover, setSrvLeftover] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [certs, setCerts] = useState<CertOption[]>([]);
   const [accessLists, setAccessLists] = useState<Pick<AccessListWithRelations, "id" | "name" | "authEnabled" | "ipRules">[]>([]);
@@ -104,8 +189,18 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
     } catch { /* ignore */ }
   }
 
+  function syncEasyFromRaw(customLocations: string, customServer: string) {
+    const loc = parseDirectiveBlob(customLocations, LOCATION_DIRECTIVE_PRESETS);
+    setLocRows(loc.rows);
+    setLocLeftover(loc.leftover);
+    const srv = parseDirectiveBlob(customServer, SERVER_DIRECTIVE_PRESETS);
+    setSrvRows(srv.rows);
+    setSrvLeftover(srv.leftover);
+  }
+
   function populateFromProxy(p: ProxyHostWithCert) {
     const fp = String(p.forwardPort);
+    syncEasyFromRaw(p.customLocations ?? "", p.customServer ?? "");
     setForm({
       domain: p.domain,
       forwardScheme: (p.forwardScheme ?? "http") as "http" | "https" | "grpc" | "grpcs",
@@ -145,6 +240,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
       } else {
         setForm(DEFAULT);
         setPortMode("80");
+        syncEasyFromRaw("", "");
       }
       setTestResult(null);
       setErrors({});
@@ -164,6 +260,14 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
     }
   }, [open, proxy]);
 
+
+  function handleModeToggle(advanced: boolean) {
+    if (!advanced) {
+      // Re-parse from the raw text in case it was hand-edited in Advanced.
+      syncEasyFromRaw(form.customLocations, form.customServer);
+    }
+    setShowAdvanced(advanced);
+  }
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -520,32 +624,85 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
 
           {/* ── Advanced ─────────────────────────────────────────────── */}
           <TabsContent value="advanced" className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <Label htmlFor="customLocations">Custom Location Directives</Label>
-              <p className="text-xs text-muted-foreground">
-                Injected inside the <code className="bg-muted px-1 rounded">location /</code> block. One directive per line.
-              </p>
-              <Textarea
-                id="customLocations"
-                placeholder={"proxy_cache my_cache;\nclient_max_body_size 100m;"}
-                value={form.customLocations}
-                onChange={(e) => set("customLocations", e.target.value)}
-                rows={5}
-              />
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Custom Directives</p>
+                <p className="text-xs text-muted-foreground">Injected into the generated nginx config.</p>
+              </div>
+              <div className="flex gap-1">
+                {([false, true] as const).map((advanced) => (
+                  <button
+                    key={String(advanced)}
+                    type="button"
+                    onClick={() => handleModeToggle(advanced)}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                      showAdvanced === advanced
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:border-foreground/40"
+                    }`}
+                  >
+                    {advanced ? "Advanced" : "Easy"}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="customServer">Custom Server Directives</Label>
-              <p className="text-xs text-muted-foreground">
-                Injected inside the <code className="bg-muted px-1 rounded">server</code> block.
-              </p>
-              <Textarea
-                id="customServer"
-                placeholder={"error_page 502 /502.html;"}
-                value={form.customServer}
-                onChange={(e) => set("customServer", e.target.value)}
-                rows={4}
-              />
-            </div>
+
+            {showAdvanced ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="customLocations">Custom Location Directives</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Injected inside the <code className="bg-muted px-1 rounded">location /</code> block. One directive per line.
+                  </p>
+                  <Textarea
+                    id="customLocations"
+                    placeholder={"proxy_cache my_cache;\nclient_max_body_size 100m;"}
+                    value={form.customLocations}
+                    onChange={(e) => set("customLocations", e.target.value)}
+                    rows={5}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="customServer">Custom Server Directives</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Injected inside the <code className="bg-muted px-1 rounded">server</code> block.
+                  </p>
+                  <Textarea
+                    id="customServer"
+                    placeholder={"error_page 502 /502.html;"}
+                    value={form.customServer}
+                    onChange={(e) => set("customServer", e.target.value)}
+                    rows={4}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <DirectiveEasySection
+                  title="Custom Location Directives"
+                  description={<>Injected inside the <code className="bg-muted px-1 rounded">location /</code> block.</>}
+                  presets={LOCATION_DIRECTIVE_PRESETS}
+                  rows={locRows}
+                  leftover={locLeftover}
+                  onChange={(rows) => {
+                    setLocRows(rows);
+                    set("customLocations", serializeDirectiveRows(rows, locLeftover));
+                  }}
+                />
+                <DirectiveEasySection
+                  title="Custom Server Directives"
+                  description={<>Injected inside the <code className="bg-muted px-1 rounded">server</code> block.</>}
+                  presets={SERVER_DIRECTIVE_PRESETS}
+                  rows={srvRows}
+                  leftover={srvLeftover}
+                  onChange={(rows) => {
+                    setSrvRows(rows);
+                    set("customServer", serializeDirectiveRows(rows, srvLeftover));
+                  }}
+                />
+              </>
+            )}
+
             <div className="rounded-lg border border-warning/20 bg-warning/5 p-3 text-xs text-muted-foreground">
               Custom directives are validated against a blocklist. Lua, exec, and include path-traversal directives are rejected.
             </div>
