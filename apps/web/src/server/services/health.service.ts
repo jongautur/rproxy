@@ -18,8 +18,8 @@ function probeHttps(host: string, port: number, start: number): Promise<ProbeRes
       (res) => {
         const responseTime = Date.now() - start;
         const statusCode = res.statusCode ?? 0;
-        // Any HTTP response means the backend is reachable; only errors/timeouts mean DOWN
-        resolve({ status: statusCode > 0 ? "UP" : "DOWN", statusCode, responseTime });
+        // A 5xx means the backend itself is failing, even though it's reachable
+        resolve({ status: statusCode > 0 && statusCode < 500 ? "UP" : "DOWN", statusCode, responseTime });
         res.resume();
       }
     );
@@ -66,7 +66,7 @@ export async function probeProxy(proxy: ProxyHost): Promise<ProbeResult> {
       clearTimeout(timer);
     }
     const responseTime = Date.now() - start;
-    return { status: statusCode > 0 ? "UP" : "DOWN", statusCode, responseTime };
+    return { status: statusCode > 0 && statusCode < 500 ? "UP" : "DOWN", statusCode, responseTime };
   } catch (e) {
     const err = e as Error;
     return { status: "DOWN", responseTime: Date.now() - start, error: err.name === "AbortError" ? "Timeout after 5s" : (err.message ?? "Connection refused") };
