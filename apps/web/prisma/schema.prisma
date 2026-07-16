@@ -238,10 +238,13 @@ model TrafficStat {
 
 model NotificationChannel {
   id        String   @id @default(cuid())
-  type      String   // "email" | "webhook"
+  type      String   // "email" | "webhook" | "home_assistant"
   label     String   @default("")
   enabled   Boolean  @default(true)
   config    String   // AES-256-GCM encrypted JSON
+  // JSON array of event types this channel receives, e.g.
+  // ["host_down","cert_renewal_failed"]. Not encrypted — not secret.
+  events    String   @default("[\"host_down\",\"host_up\",\"cert_expiring\",\"cert_renewal_failed\"]")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

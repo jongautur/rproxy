@@ -106,6 +106,15 @@ export async function middleware(req: NextRequest) {
 
   // ── API routes ───────────────────────────────────────────────────────────────
   if (pathname.startsWith("/api/")) {
+    // Bearer-token endpoints (CRON_SECRET, checked by the route handler
+    // itself) aren't cookie-authenticated, so there's no access-token cookie
+    // to check here — same reasoning as the CSRF exemption above. Without
+    // this, every cron-triggered request (cert renewal, log cleanup/parsing,
+    // health-check sweep) is rejected with 401 before it ever reaches the
+    // route handler's own CRON_SECRET check.
+    if (CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p))) {
+      return NextResponse.next();
+    }
     let apiPayload: JwtPayload | null = null;
     if (rawToken) {
       try { apiPayload = await verifyAccessToken(rawToken); } catch { /* expired */ }

@@ -98,6 +98,16 @@ else
   success "User '$RPROXY_USER' already exists"
 fi
 
+# nginx access/error logs are www-data:adm, mode 640 — without this the
+# traffic-stats log parser (parse-logs cron) fails with EACCES on the very
+# first host it reads.
+if ! id -nG "$RPROXY_USER" | grep -qw adm; then
+  as_root usermod -aG adm "$RPROXY_USER"
+  success "Added '$RPROXY_USER' to 'adm' group (nginx log read access)"
+else
+  success "'$RPROXY_USER' already in 'adm' group"
+fi
+
 # ── 5. PostgreSQL ─────────────────────────────────────────────────────────────
 info "Configuring PostgreSQL..."
 as_root systemctl enable postgresql
@@ -264,6 +274,17 @@ CRON_JOB="0 3 * * * /opt/rproxy/scripts/renew-certs.sh >> /var/log/rproxy/renew-
 ( (as_user "$RPROXY_USER" crontab -l 2>/dev/null || true) | grep -v 'renew-certs.sh' || true; echo "$CRON_JOB" ) \
   | as_user "$RPROXY_USER" crontab -
 success "Renewal cron installed (03:00 daily)"
+
+# ── 12b. Health-check sweep cron (rproxy user) ────────────────────────────────
+# Without this, host_down/host_up notifications only fire while someone has
+# the Hosts page open (that page's own load-triggered probe) — this sweep
+# covers every enabled host on a fixed interval regardless.
+info "Installing health-check cron..."
+as_root chmod +x /opt/rproxy/scripts/health-check.sh
+HEALTH_CRON_JOB="*/2 * * * * /opt/rproxy/scripts/health-check.sh >> /var/log/rproxy/health-check.log 2>&1"
+( (as_user "$RPROXY_USER" crontab -l 2>/dev/null || true) | grep -v 'health-check.sh' || true; echo "$HEALTH_CRON_JOB" ) \
+  | as_user "$RPROXY_USER" crontab -
+success "Health-check cron installed (every 2 minutes)"
 
 # ── 13. Done ──────────────────────────────────────────────────────────────────
 success ""

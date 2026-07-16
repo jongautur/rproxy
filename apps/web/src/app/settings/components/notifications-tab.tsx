@@ -21,18 +21,29 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 
+type EventType = "host_down" | "host_up" | "cert_expiring" | "cert_renewal_failed";
+
 interface Channel {
   id: string;
   type: "email" | "webhook" | "home_assistant";
   label: string;
   enabled: boolean;
   config: Record<string, string>;
+  events: EventType[];
 }
 
 const EMAIL_EMPTY = { label: "Email", host: "", port: "587", secure: "false", username: "", password: "", from: "", to: "" };
 const WEBHOOK_EMPTY = { label: "Webhook", url: "", secret: "" };
 const HOME_ASSISTANT_EMPTY = { label: "Home Assistant", url: "", accessToken: "", notificationService: "" };
 const MASKED = "••••••••";
+
+const EVENT_DEFS: { value: EventType; label: string; desc: string }[] = [
+  { value: "host_down", label: "Host Down", desc: "A proxy host stops responding" },
+  { value: "host_up", label: "Host Recovered", desc: "A proxy host comes back online" },
+  { value: "cert_expiring", label: "Certificate Expiring", desc: "A cert is within 14 days of expiry" },
+  { value: "cert_renewal_failed", label: "Renewal Failed", desc: "Automatic cert renewal failed" },
+];
+const ALL_EVENTS: EventType[] = EVENT_DEFS.map((e) => e.value);
 
 export function NotificationsTab() {
   const { toast } = useToast();
@@ -44,6 +55,7 @@ export function NotificationsTab() {
   const [emailForm, setEmailForm] = useState({ ...EMAIL_EMPTY });
   const [webhookForm, setWebhookForm] = useState({ ...WEBHOOK_EMPTY });
   const [homeAssistantForm, setHomeAssistantForm] = useState({ ...HOME_ASSISTANT_EMPTY });
+  const [eventsForm, setEventsForm] = useState<EventType[]>([...ALL_EVENTS]);
   const [saving, setSaving] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Channel | null>(null);
@@ -105,6 +117,7 @@ export function NotificationsTab() {
     setEmailForm({ ...EMAIL_EMPTY });
     setWebhookForm({ ...WEBHOOK_EMPTY });
     setHomeAssistantForm({ ...HOME_ASSISTANT_EMPTY });
+    setEventsForm([...ALL_EVENTS]);
     setDialogOpen(true);
   }
 
@@ -117,11 +130,16 @@ export function NotificationsTab() {
     } else {
       setWebhookForm({ ...WEBHOOK_EMPTY, ...ch.config, label: ch.label });
     }
+    setEventsForm(ch.events.length > 0 ? ch.events : [...ALL_EVENTS]);
     setDialogOpen(true);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (eventsForm.length === 0) {
+      toast({ variant: "destructive", title: "Select at least one event" });
+      return;
+    }
     setSaving(true);
     try {
       let config: Record<string, unknown>;
@@ -147,13 +165,13 @@ export function NotificationsTab() {
         res = await fetch(`/api/settings/notifications/${editingChannel.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label, enabled: editingChannel.enabled, config: rest }),
+          body: JSON.stringify({ label, enabled: editingChannel.enabled, config: rest, events: eventsForm }),
         });
       } else {
         res = await fetch("/api/settings/notifications", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: formType, ...config }),
+          body: JSON.stringify({ type: formType, ...config, events: eventsForm }),
         });
       }
 
@@ -165,9 +183,14 @@ export function NotificationsTab() {
       setEmailForm({ ...EMAIL_EMPTY });
       setWebhookForm({ ...WEBHOOK_EMPTY });
       setHomeAssistantForm({ ...HOME_ASSISTANT_EMPTY });
+      setEventsForm([...ALL_EVENTS]);
       void fetch_();
     } catch { toast({ variant: "destructive", title: "Save failed" }); }
     finally { setSaving(false); }
+  }
+
+  function toggleEvent(ev: EventType) {
+    setEventsForm((cur) => cur.includes(ev) ? cur.filter((e) => e !== ev) : [...cur, ev]);
   }
 
   return (
@@ -210,6 +233,11 @@ export function NotificationsTab() {
                     <Badge variant={ch.enabled ? "success" : "secondary"} className="ml-2">
                       {ch.enabled ? "Active" : "Disabled"}
                     </Badge>
+                    {ch.events.length < ALL_EVENTS.length && (
+                      <Badge variant="secondary" className="ml-1">
+                        {ch.events.length}/{ALL_EVENTS.length} events
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
@@ -246,7 +274,7 @@ export function NotificationsTab() {
       </Card>
 
       {/* Add/Edit channel dialog */}
-      <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) setEditingChannel(null); }}>
+      <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) { setEditingChannel(null); setEventsForm([...ALL_EVENTS]); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{editingChannel ? "Edit Notification Channel" : "Add Notification Channel"}</DialogTitle>
@@ -352,8 +380,26 @@ export function NotificationsTab() {
               </>
             )}
 
+            <div className="space-y-1.5">
+              <Label>Send for</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {EVENT_DEFS.map((ev) => (
+                  <div key={ev.value} className="flex items-start justify-between gap-2 p-2.5 rounded-lg border border-border/50 bg-accent/20">
+                    <div>
+                      <p className="text-xs font-medium">{ev.label}</p>
+                      <p className="text-[11px] text-muted-foreground">{ev.desc}</p>
+                    </div>
+                    <Switch
+                      checked={eventsForm.includes(ev.value)}
+                      onCheckedChange={() => toggleEvent(ev.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setEditingChannel(null); }}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setEditingChannel(null); setEventsForm([...ALL_EVENTS]); }}>Cancel</Button>
               <Button type="submit" disabled={saving}>
                 {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {editingChannel ? "Save changes" : "Add channel"}

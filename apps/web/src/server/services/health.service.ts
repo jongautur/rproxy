@@ -73,8 +73,45 @@ export async function probeProxy(proxy: ProxyHost): Promise<ProbeResult> {
   }
 }
 
+// Keeps at most 50 rows per host. A single windowed DELETE across the whole
+// table costs one round-trip regardless of host count — the old approach
+// (findMany + deleteMany per host) was 2N queries per sweep and was a
+// meaningful chunk of the DB contention described below.
+async function pruneOldHealthChecks(): Promise<void> {
+  await prisma.$executeRaw`
+    DELETE FROM health_checks
+    WHERE id IN (
+      SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY proxy_host_id ORDER BY checked_at DESC) AS rn
+        FROM health_checks
+      ) ranked
+      WHERE rn > 50
+    )
+  `;
+}
+
+function fireTransitionNotification(domain: string, result: ProbeResult): void {
+  if (result.status === "DOWN") {
+    void fireNotification({
+      type: "host_down",
+      title: `${domain} is DOWN`,
+      body: `Proxy host ${domain} is no longer reachable.${result.error ? "\nError: " + result.error : ""}`,
+      hostName: domain,
+      status: 0,
+    });
+  } else {
+    void fireNotification({
+      type: "host_up",
+      title: `${domain} recovered`,
+      body: `Proxy host ${domain} is back online.${result.responseTime ? " Response time: " + result.responseTime + "ms" : ""}`,
+      hostName: domain,
+      status: 1,
+    });
+  }
+}
+
+// Used by the manual "probe" button (single host) — POST /api/proxies/[id]/health.
 export async function recordHealthCheck(proxyId: string, result: ProbeResult): Promise<void> {
-  // Check previous status for transition detection
   const previous = await prisma.healthCheck.findFirst({
     where: { proxyHostId: proxyId },
     orderBy: { checkedAt: "desc" },
@@ -91,38 +128,55 @@ export async function recordHealthCheck(proxyId: string, result: ProbeResult): P
     },
   });
 
-  // Fire notification on status transition
   if (previous && previous.status !== result.status) {
     const proxy = await prisma.proxyHost.findUnique({ where: { id: proxyId }, select: { domain: true } });
-    const domain = proxy?.domain ?? proxyId;
-    if (result.status === "DOWN") {
-      void fireNotification({
-        type: "host_down",
-        title: `${domain} is DOWN`,
-        body: `Proxy host ${domain} is no longer reachable.${result.error ? "\nError: " + result.error : ""}`,
-        hostName: domain,
-        status: 0,
-      });
-    } else if (result.status === "UP") {
-      void fireNotification({
-        type: "host_up",
-        title: `${domain} recovered`,
-        body: `Proxy host ${domain} is back online.${result.responseTime ? " Response time: " + result.responseTime + "ms" : ""}`,
-        hostName: domain,
-        status: 1,
-      });
+    fireTransitionNotification(proxy?.domain ?? proxyId, result);
+  }
+
+  await pruneOldHealthChecks();
+}
+
+// Probes every enabled proxy host concurrently and persists all results in a
+// small, fixed number of queries regardless of host count — used by both the
+// dashboard's "refresh on page load" batch call and the background cron
+// sweep. Previously each host was a fully separate HTTP request back into
+// this app (POST /api/proxies/[id]/health), each paying its own session
+// re-validation query, proxy lookup, previous-status lookup, insert, and
+// prune (findMany+deleteMany) — under concurrency those N-in-parallel DB
+// round trips queued against Prisma's connection pool, which is why probing
+// "all hosts at once" measured ~50ms per host versus ~2-5ms one at a time.
+// The fix isn't to reduce parallelism on the network probes (those are fine
+// concurrent) — it's to stop doing per-host DB work N times over.
+export async function runHealthSweep(): Promise<Record<string, ProbeResult>> {
+  const hosts = await prisma.proxyHost.findMany({ where: { enabled: true } });
+  if (hosts.length === 0) return {};
+
+  const previousByHost = await getLatestHealthChecks();
+
+  const results = await Promise.all(
+    hosts.map(async (host) => ({ host, result: await probeProxy(host) }))
+  );
+
+  await prisma.healthCheck.createMany({
+    data: results.map(({ host, result }) => ({
+      proxyHostId: host.id,
+      status: result.status,
+      statusCode: result.statusCode,
+      responseTime: result.responseTime,
+      error: result.error ?? null,
+    })),
+  });
+
+  for (const { host, result } of results) {
+    const previousStatus = previousByHost[host.id]?.status;
+    if (previousStatus && previousStatus !== result.status) {
+      fireTransitionNotification(host.domain, result);
     }
   }
 
-  const old = await prisma.healthCheck.findMany({
-    where: { proxyHostId: proxyId },
-    orderBy: { checkedAt: "desc" },
-    skip: 50,
-    select: { id: true },
-  });
-  if (old.length > 0) {
-    await prisma.healthCheck.deleteMany({ where: { id: { in: old.map((r) => r.id) } } });
-  }
+  await pruneOldHealthChecks();
+
+  return Object.fromEntries(results.map(({ host, result }) => [host.id, result]));
 }
 
 export async function getLatestHealthChecks(): Promise<

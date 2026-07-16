@@ -2,14 +2,28 @@ import nodemailer from "nodemailer";
 import { prisma } from "@/lib/prisma";
 import { encryptJson, decryptJson } from "@/lib/encrypt";
 
+export const NOTIFICATION_EVENT_TYPES = ["host_down", "host_up", "cert_expiring", "cert_renewal_failed"] as const;
+export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
+
 export interface NotificationEvent {
-  type: "host_down" | "host_up" | "cert_expiring" | "cert_renewal_failed";
+  type: NotificationEventType;
   title: string;
   body: string;
   /** Domain/host this event is about, if any — passed through to providers that support automation filtering (e.g. Home Assistant). */
   hostName?: string;
   /** 0=down, 1=up — set only for host_down/host_up, matching the uptime-kuma convention Home Assistant automations expect. */
   status?: 0 | 1;
+}
+
+function eventsForChannel(raw: string): NotificationEventType[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((t) => NOTIFICATION_EVENT_TYPES.includes(t as NotificationEventType))) {
+      return parsed as NotificationEventType[];
+    }
+  } catch { /* fall through to default */ }
+  // Malformed/missing — behave as if unfiltered, matching pre-filtering behavior.
+  return [...NOTIFICATION_EVENT_TYPES];
 }
 
 interface EmailConfig {
@@ -100,6 +114,7 @@ export async function fireNotification(event: NotificationEvent): Promise<void> 
   const errors: string[] = [];
 
   for (const channel of channels) {
+    if (!eventsForChannel(channel.events).includes(event.type)) continue;
     try {
       const config = decryptJson(channel.config);
       if (channel.type === "email") {
@@ -144,13 +159,14 @@ export async function testChannel(id: string): Promise<{ success: boolean; error
 export async function createChannel(
   type: "email" | "webhook" | "home_assistant",
   label: string,
-  config: Record<string, string | number | boolean>
+  config: Record<string, string | number | boolean>,
+  events: NotificationEventType[]
 ): Promise<void> {
   const strConfig = Object.fromEntries(
     Object.entries(config).map(([k, v]) => [k, String(v)])
   );
   await prisma.notificationChannel.create({
-    data: { type, label, config: encryptJson(strConfig) },
+    data: { type, label, config: encryptJson(strConfig), events: JSON.stringify(events) },
   });
 }
 
@@ -158,9 +174,11 @@ export async function updateChannel(
   id: string,
   label: string,
   enabled: boolean,
-  config?: Record<string, string | number | boolean>
+  config?: Record<string, string | number | boolean>,
+  events?: NotificationEventType[]
 ): Promise<void> {
-  const data: { label: string; enabled: boolean; config?: string } = { label, enabled };
+  const data: { label: string; enabled: boolean; config?: string; events?: string } = { label, enabled };
+  if (events) data.events = JSON.stringify(events);
   if (config) {
     const strConfig = Object.fromEntries(
       Object.entries(config).map(([k, v]) => [k, String(v)])

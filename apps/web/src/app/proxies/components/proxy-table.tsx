@@ -73,16 +73,12 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
   useEffect(() => {
     const ids = data?.items.map((p) => p.id) ?? [];
     if (ids.length === 0) return;
-    Promise.all(
-      ids.map((id) =>
-        fetch(`/api/proxies/${id}/health`, { method: "POST" })
-          .then((r) => r.json() as Promise<{ success: boolean; data: { status: string; responseTime?: number } }>)
-          .then((j) => ({ id, result: j.success ? j.data : null }))
-          .catch(() => ({ id, result: null }))
-      )
-    ).then((results) => {
-      setHealthMap(Object.fromEntries(results.filter((r) => r.result).map((r) => [r.id, r.result!])));
-    });
+    // One batched request probes every enabled host server-side, rather than
+    // N parallel requests each paying their own session/DB overhead.
+    fetch("/api/proxies/health-check", { method: "POST" })
+      .then((r) => r.json() as Promise<{ success: boolean; data: { results: HealthMap } }>)
+      .then((j) => { if (j.success) setHealthMap((prev) => ({ ...prev, ...j.data.results })); })
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.items.map((p) => p.id).join(",")]);
 
