@@ -307,8 +307,8 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
         websocket: form.websocket,
         accessLog: form.accessLog,
         errorLog: form.errorLog,
-        customLocations: form.customLocations.trim() || undefined,
-        customServer: form.customServer.trim() || undefined,
+        customLocations: form.customLocations.trim(),
+        customServer: form.customServer.trim(),
         certificateId: form.certificateId || undefined,
         accessListId: form.accessListId ?? null,
       };
