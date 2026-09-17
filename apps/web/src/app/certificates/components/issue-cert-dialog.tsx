@@ -44,9 +44,26 @@ const DNS_ENV_HINTS: Record<string, { key: string; label: string }[]> = {
   dns_ovh:          [{ key: "OVH_AK", label: "Application Key" }, { key: "OVH_AS", label: "Application Secret" }, { key: "OVH_CK", label: "Consumer Key" }],
 };
 
+interface DnsRecordResult {
+  created: boolean;
+  propagated?: boolean;
+  proxied?: boolean;
+  error?: string;
+}
+
 interface IssueResult {
   success: boolean;
   output: string;
+  dnsRecord?: DnsRecordResult;
+}
+
+function dnsRecordSummary(dns: DnsRecordResult): string {
+  if (!dns.created) return `Cloudflare: A record not created${dns.error ? ` — ${dns.error}` : ""}`;
+  const parts = ["Cloudflare: A record created"];
+  if (dns.propagated === true) parts.push("DNS propagated");
+  if (dns.propagated === false) parts.push("propagation check timed out (issuance proceeded anyway)");
+  if (dns.proxied) parts.push("proxy (orange cloud) enabled");
+  return parts.join(", ");
 }
 
 export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }: Props) {
@@ -112,13 +129,14 @@ export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }:
 
       const json = await res.json() as {
         success: boolean;
-        data?: { certificate: unknown; output: string };
+        data?: { certificate: unknown; output: string; dnsRecord?: DnsRecordResult };
         error?: string;
       };
 
       setResult({
         success: json.success,
         output: json.data?.output ?? json.error ?? "Unknown error",
+        dnsRecord: json.data?.dnsRecord,
       });
 
       if (json.success) {
@@ -264,6 +282,9 @@ export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }:
                 }
               </div>
               <pre className="whitespace-pre-wrap opacity-80 max-h-40 overflow-y-auto">{result.output}</pre>
+              {result.dnsRecord && (
+                <p className="mt-2 pt-2 border-t border-current/20 font-sans opacity-80">{dnsRecordSummary(result.dnsRecord)}</p>
+              )}
             </div>
           )}
         </div>

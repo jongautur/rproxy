@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import {
   Globe, Edit2, Trash2, ChevronLeft, ChevronRight,
   CheckCircle2, XCircle, AlertCircle, Lock, Wifi, Loader2, Heart,
-  ChevronDown, ChevronRight as ChevronRightIcon, Layers,
+  ChevronDown, ChevronRight as ChevronRightIcon, Layers, Cloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -191,6 +191,11 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
             {proxy.websocket && <span title="WebSocket"><Wifi className="w-3.5 h-3.5 text-primary" /></span>}
             {proxy.http2 && <Badge variant="info" className="text-[10px] px-1.5 py-0">H2</Badge>}
             {proxy.forceHttps && <Badge variant="info" className="text-[10px] px-1.5 py-0">HTTPS</Badge>}
+            {proxy.cloudflareRecordId && (
+              <span title={proxy.cloudflareProxied ? "Cloudflare: Proxied (orange cloud)" : "Cloudflare: DNS only (grey cloud)"}>
+                <Cloud className={cn("w-3.5 h-3.5", proxy.cloudflareProxied ? "text-orange-500 fill-orange-500/20" : "text-muted-foreground")} />
+              </span>
+            )}
           </div>
         </td>
         <td className="px-4 py-4"><StatusBadge status={proxy.status} enabled={proxy.enabled} /></td>

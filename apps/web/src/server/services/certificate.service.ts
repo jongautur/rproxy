@@ -6,13 +6,56 @@ import {
   issueCertificate, renewCertificate, revokeCertificate,
   parseCertInfo, getCertPaths,
 } from "@/server/system/acme";
+import {
+  getIntegration, resolveZoneForDomain, upsertARecord, getPublicIp, waitForDnsPropagation,
+  type CloudflareZone,
+} from "@/server/services/cloudflare.service";
 import type { Certificate } from "@prisma/client";
 import type { CertificateFormData } from "@/types/certificate";
+
+export interface DnsRecordResult {
+  created: boolean;
+  propagated?: boolean;
+  proxied?: boolean;
+  error?: string;
+}
+
+// Best-effort — a Cloudflare hiccup must never block certificate issuance,
+// since the cert flow is fully functional without DNS automation.
+async function ensureDnsRecordForCert(domain: string, challengeType: string): Promise<{ result?: DnsRecordResult; zone?: CloudflareZone; token?: string; ip?: string }> {
+  try {
+    const integration = await getIntegration();
+    if (!integration?.autoDnsEnabled) return {};
+
+    const zone = await resolveZoneForDomain(integration.apiToken, domain);
+    if (!zone) {
+      return { result: { created: false, error: `No Cloudflare zone found for ${domain}` } };
+    }
+
+    const ip = integration.lastPublicIp ?? await getPublicIp();
+    await upsertARecord(integration.apiToken, zone.id, domain, ip, { proxied: integration.defaultProxied });
+
+    // Only HTTP-01 needs the A record to have propagated publicly before
+    // issuance — DNS-01 validates via its own TXT record instead. A proxied
+    // (orange-cloud) record never publicly resolves to the origin IP at all
+    // — it resolves to Cloudflare's edge — so the check would always time
+    // out even though the record is correct; skip it in that case too.
+    const propagated = challengeType === "HTTP" && !integration.defaultProxied
+      ? await waitForDnsPropagation(domain, ip)
+      : undefined;
+
+    return { result: { created: true, propagated }, zone, token: integration.apiToken, ip };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.error(`Cloudflare DNS auto-create failed for ${domain}:`, error);
+    return { result: { created: false, error } };
+  }
+}
 
 export async function createCertificate(
   data: CertificateFormData,
   userId: string
-): Promise<{ certificate: Certificate; output: string }> {
+): Promise<{ certificate: Certificate; output: string; dnsRecord?: DnsRecordResult }> {
   const cert = await prisma.certificate.create({
     data: {
       domain: data.domain,
@@ -38,6 +81,8 @@ export async function createCertificate(
   if (data.dnsCredentials) {
     dnsEnv = data.dnsCredentials as Record<string, string>;
   }
+
+  const dns = await ensureDnsRecordForCert(data.domain, data.challengeType);
 
   const result = await issueCertificate({
     domain: data.domain,
@@ -81,7 +126,19 @@ export async function createCertificate(
       data: { userId, action: "ISSUE_CERT", entity: "Certificate", entityId: cert.id },
     });
 
-    return { certificate: updated, output };
+    if (dns.zone && dns.token && dns.ip) {
+      try {
+        const integration = await getIntegration();
+        if (integration?.proxyAfterSsl) {
+          await upsertARecord(dns.token, dns.zone.id, data.domain, dns.ip, { proxied: true });
+          if (dns.result) dns.result.proxied = true;
+        }
+      } catch (e) {
+        console.error(`Cloudflare proxy-after-ssl flip failed for ${data.domain}:`, e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    return { certificate: updated, output, dnsRecord: dns.result };
   }
 
   await prisma.certificate.update({

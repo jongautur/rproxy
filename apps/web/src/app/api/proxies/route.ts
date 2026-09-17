@@ -70,9 +70,9 @@ export async function POST(req: NextRequest) {
       return badRequest("A proxy for this domain already exists");
     }
 
-    const { proxy, deploy } = await createProxy(parsed.data, session.id);
+    const { proxy, deploy, dnsRecord } = await createProxy(parsed.data, session.id);
 
-    return created({ proxy, nginxTest: deploy });
+    return created({ proxy, nginxTest: deploy, dnsRecord });
   } catch (e) {
     return fromError(e);
   }

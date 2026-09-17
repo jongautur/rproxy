@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Settings, Users, Key, Download, Database, HardDrive,
-  Plus, Trash2, Loader2, CheckCircle2, ShieldCheck, ShieldOff, User, Bell, Globe, Webhook, FileWarning,
+  Plus, Trash2, Loader2, CheckCircle2, ShieldCheck, ShieldOff, User, Bell, Globe, Webhook, FileWarning, Network, CloudCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -26,6 +27,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { NotificationsTab } from "./notifications-tab";
+import { CloudflareTab } from "./cloudflare-tab";
 import { TotpCard } from "./totp-card";
 
 interface AppUser {
@@ -94,6 +96,13 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
   const [error403Html, setError403Html] = useState("");
   const [error403Saving, setError403Saving] = useState(false);
 
+  // Real client IP (behind Cloudflare / another reverse proxy)
+  const [realIpEnabled, setRealIpEnabled] = useState(false);
+  const [realIpSource, setRealIpSource] = useState<"cloudflare" | "custom">("cloudflare");
+  const [realIpHeader, setRealIpHeader] = useState<"cf-connecting-ip" | "x-forwarded-for">("cf-connecting-ip");
+  const [realIpCustomCidrs, setRealIpCustomCidrs] = useState("");
+  const [realIpSaving, setRealIpSaving] = useState(false);
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch("/api/settings");
@@ -108,6 +117,12 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
         setDefaultPageRedirectUrl(find("default_page_redirect_url") ?? "");
         setDefaultPageHtml(find("default_page_html") ?? "");
         setError403Html(find("error_403_html") ?? "");
+        setRealIpEnabled(find("real_ip_enabled") === "true");
+        const ripSource = find("real_ip_source");
+        if (ripSource) setRealIpSource(ripSource as typeof realIpSource);
+        const ripHeader = find("real_ip_header");
+        if (ripHeader) setRealIpHeader(ripHeader as typeof realIpHeader);
+        setRealIpCustomCidrs(find("real_ip_custom_cidrs") ?? "");
       }
     } catch {
       // VIEWER gets 403 — fine
@@ -257,6 +272,39 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
     }
   }
 
+  async function handleSaveRealIp() {
+    if (realIpEnabled && realIpSource === "custom" && !realIpCustomCidrs.trim()) {
+      toast({ variant: "destructive", title: "At least one trusted CIDR is required" });
+      return;
+    }
+    setRealIpSaving(true);
+    try {
+      // Field values first (same ordering rationale as handleSaveDefaultPage)
+      // so the real_ip_enabled save — which triggers the actual redeploy —
+      // reads settings that are already up to date.
+      const fieldSaves = await Promise.all([
+        patchSetting("real_ip_source", realIpSource),
+        patchSetting("real_ip_header", realIpHeader),
+        patchSetting("real_ip_custom_cidrs", realIpCustomCidrs),
+      ]);
+      const fieldError = fieldSaves.find((r) => !r.success);
+      if (fieldError) {
+        toast({ variant: "destructive", title: "Save failed", description: fieldError.error });
+        return;
+      }
+      const result = await patchSetting("real_ip_enabled", String(realIpEnabled));
+      if (result.success) {
+        toast({ title: "Real client IP settings saved" });
+      } else {
+        toast({ variant: "destructive", title: "Save failed", description: result.error });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Save failed" });
+    } finally {
+      setRealIpSaving(false);
+    }
+  }
+
   async function handlePasswordChange() {
     if (pwNew !== pwConfirm) {
       toast({ variant: "destructive", title: "Passwords don't match" });
@@ -386,6 +434,10 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
           <TabsTrigger value="nginx" className="gap-2">
             <Globe className="w-4 h-4" />
             Nginx
+          </TabsTrigger>
+          <TabsTrigger value="cloudflare" className="gap-2">
+            <CloudCog className="w-4 h-4" />
+            Cloudflare
           </TabsTrigger>
           {!loading && data && (
             <TabsTrigger value="users" className="gap-2">
@@ -591,6 +643,10 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
           <NotificationsTab />
         </TabsContent>
 
+        <TabsContent value="cloudflare">
+          <CloudflareTab />
+        </TabsContent>
+
         <TabsContent value="nginx" className="space-y-6">
           <Card>
             <CardHeader className="pb-3 pt-4 px-5">
@@ -649,6 +705,83 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
 
               <Button onClick={handleSaveDefaultPage} disabled={defaultPageSaving}>
                 {defaultPageSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                Save
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3 pt-4 px-5">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Network className="w-4 h-4" />
+                Real Client IP
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-5 space-y-4">
+              <p className="text-xs text-muted-foreground">
+                If every request arrives via Cloudflare (or another reverse proxy in front of this server), access logs and IP-based access lists otherwise only ever see that proxy&apos;s IP. Enabling this rewrites the connecting IP to the real visitor&apos;s, for every site. Applies globally.
+              </p>
+              <div className="flex items-center justify-between">
+                <Label>Enable</Label>
+                <Switch checked={realIpEnabled} onCheckedChange={setRealIpEnabled} />
+              </div>
+
+              {realIpEnabled && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>Source</Label>
+                    <Select value={realIpSource} onValueChange={(v) => {
+                      const source = v as typeof realIpSource;
+                      setRealIpSource(source);
+                      setRealIpHeader(source === "cloudflare" ? "cf-connecting-ip" : "x-forwarded-for");
+                    }}>
+                      <SelectTrigger className="w-64">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cloudflare">Cloudflare (bundled IP ranges)</SelectItem>
+                        <SelectItem value="custom">Custom trusted proxy</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {realIpSource === "custom" && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label>Trusted proxy CIDRs</Label>
+                        <Textarea
+                          className="font-mono text-xs min-h-24"
+                          placeholder={"10.0.0.0/8\n192.168.1.1"}
+                          value={realIpCustomCidrs}
+                          onChange={(e) => setRealIpCustomCidrs(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">One IP or CIDR per line — only requests from these addresses have their IP header trusted.</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Header</Label>
+                        <Select value={realIpHeader} onValueChange={(v) => setRealIpHeader(v as typeof realIpHeader)}>
+                          <SelectTrigger className="w-64">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="x-forwarded-for">X-Forwarded-For</SelectItem>
+                            <SelectItem value="cf-connecting-ip">CF-Connecting-IP</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  )}
+
+                  {realIpSource === "cloudflare" && (
+                    <p className="text-xs text-muted-foreground">
+                      Uses Cloudflare&apos;s published IP ranges and the <code>CF-Connecting-IP</code> header.
+                    </p>
+                  )}
+                </>
+              )}
+
+              <Button onClick={handleSaveRealIp} disabled={realIpSaving}>
+                {realIpSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                 Save
               </Button>
             </CardContent>

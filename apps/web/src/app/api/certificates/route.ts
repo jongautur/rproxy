@@ -45,8 +45,8 @@ export async function POST(req: NextRequest) {
       return badRequest("Validation failed", parsed.error.flatten().fieldErrors);
     }
 
-    const { certificate, output } = await createCertificate(parsed.data, session.id);
-    return created({ certificate, output });
+    const { certificate, output, dnsRecord } = await createCertificate(parsed.data, session.id);
+    return created({ certificate, output, dnsRecord });
   } catch (e) {
     return fromError(e);
   }

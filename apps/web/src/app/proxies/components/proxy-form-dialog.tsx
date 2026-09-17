@@ -170,6 +170,10 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
   const [certs, setCerts] = useState<CertOption[]>([]);
   const [accessLists, setAccessLists] = useState<Pick<AccessListWithRelations, "id" | "name" | "authEnabled" | "ipRules">[]>([]);
   const [showIssueCert, setShowIssueCert] = useState(false);
+  const [cloudflareAutoDns, setCloudflareAutoDns] = useState(false);
+  const [cfRecordId, setCfRecordId] = useState<string | null>(null);
+  const [cfProxied, setCfProxied] = useState(false);
+  const [cfSaving, setCfSaving] = useState(false);
 
   async function handleCertIssued() {
     setShowIssueCert(false);
@@ -220,6 +224,8 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
       accessListId: (p as { accessListId?: string | null }).accessListId ?? null,
     });
     setPortMode(fp === "80" ? "80" : fp === "443" ? "443" : "custom");
+    setCfRecordId(p.cloudflareRecordId ?? null);
+    setCfProxied(p.cloudflareProxied ?? false);
   }
 
   useEffect(() => {
@@ -241,6 +247,8 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
         setForm(DEFAULT);
         setPortMode("80");
         syncEasyFromRaw("", "");
+        setCfRecordId(null);
+        setCfProxied(false);
       }
       setTestResult(null);
       setErrors({});
@@ -257,9 +265,45 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
         .then((r) => r.json() as Promise<{ success: boolean; data: { lists: Array<{ id: string; name: string; authEnabled: boolean; ipRules: unknown[] }> } }>)
         .then((j) => { if (j.success) setAccessLists(j.data.lists as typeof accessLists); })
         .catch(() => {});
+
+      // Only relevant for the hint text on new proxies — whether creating
+      // this proxy will also auto-create a Cloudflare DNS record.
+      if (!proxy) {
+        fetch("/api/settings/cloudflare")
+          .then((r) => r.json() as Promise<{ success: boolean; data: { autoDnsEnabled: boolean } }>)
+          .then((j) => { if (j.success) setCloudflareAutoDns(j.data.autoDnsEnabled); })
+          .catch(() => {});
+      }
     }
   }, [open, proxy]);
 
+
+  async function handleCfProxiedToggle(value: boolean) {
+    if (!proxy) return;
+    setCfSaving(true);
+    const previous = cfProxied;
+    setCfProxied(value);
+    try {
+      const res = await fetch(`/api/proxies/${proxy.id}/cloudflare-proxy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxied: value }),
+      });
+      const json = await res.json() as { success: boolean; error?: string };
+      if (!json.success) {
+        setCfProxied(previous);
+        toast({ variant: "destructive", title: "Cloudflare update failed", description: json.error });
+        return;
+      }
+      toast({ title: value ? "Cloudflare proxy enabled" : "Cloudflare proxy disabled" });
+      onSaved();
+    } catch {
+      setCfProxied(previous);
+      toast({ variant: "destructive", title: "Cloudflare update failed" });
+    } finally {
+      setCfSaving(false);
+    }
+  }
 
   function handleModeToggle(advanced: boolean) {
     if (!advanced) {
@@ -324,7 +368,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
 
       const json = await res.json() as {
         success: boolean;
-        data?: { proxy: unknown; nginxTest: NginxTestResult };
+        data?: { proxy: unknown; nginxTest: NginxTestResult; dnsRecord?: { created: boolean; error?: string } };
         error?: string;
         details?: Record<string, string[]>;
       };
@@ -354,6 +398,15 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
       }
 
       toast({ title: isEdit ? "Proxy updated" : "Proxy created", description: form.domain });
+
+      if (json.data?.dnsRecord && !json.data.dnsRecord.created) {
+        toast({
+          variant: "destructive",
+          title: "Cloudflare DNS record not created",
+          description: json.data.dnsRecord.error,
+        });
+      }
+
       onSaved();
     } catch {
       toast({ variant: "destructive", title: "Save failed" });
@@ -393,6 +446,18 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
                   disabled={isEdit}
                 />
                 {errors.domain && <p className="text-xs text-destructive">{errors.domain}</p>}
+                {!isEdit && cloudflareAutoDns && (
+                  <p className="text-xs text-muted-foreground">A Cloudflare DNS record will be created automatically.</p>
+                )}
+                {isEdit && cfRecordId && (
+                  <div className="flex items-center justify-between gap-2 p-3 rounded-lg border border-border/50 bg-accent/20">
+                    <div>
+                      <p className="text-sm font-medium">Cloudflare Proxy</p>
+                      <p className="text-xs text-muted-foreground">Proxy this domain through Cloudflare (orange cloud) instead of DNS-only.</p>
+                    </div>
+                    <Switch checked={cfProxied} onCheckedChange={handleCfProxiedToggle} disabled={cfSaving} />
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
