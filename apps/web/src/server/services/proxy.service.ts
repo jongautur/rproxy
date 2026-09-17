@@ -2,6 +2,7 @@ import path from "path";
 import { prisma } from "@/lib/prisma";
 import { generateNginxConfig, domainToFilename } from "@/server/config-generator/nginx-config";
 import { deploySiteConfig, removeSiteConfig, setSiteEnabled, type DeployResult } from "@/server/services/nginx-deploy.service";
+import { getIntegration, resolveZoneForDomain, upsertARecord, getPublicIp, deleteARecord, setRecordProxied, listZones, matchZoneForDomain, findARecord } from "@/server/services/cloudflare.service";
 import type { ProxyHostFormData } from "@/types/proxy";
 import type { ProxyHost } from "@prisma/client";
 
@@ -48,6 +49,56 @@ async function removeConfig(proxy: ProxyHost): Promise<DeployResult> {
   return removeSiteConfig(filename);
 }
 
+export interface DnsRecordResult {
+  created: boolean;
+  error?: string;
+}
+
+// Best-effort — a Cloudflare hiccup or misconfigured zone must never block
+// proxy creation, since the proxy itself is fully functional without DNS
+// automation (the admin can always create the A record manually).
+async function autoCreateDnsRecord(proxy: ProxyHost): Promise<DnsRecordResult | undefined> {
+  const integration = await getIntegration();
+  if (!integration?.autoDnsEnabled) return undefined;
+
+  try {
+    const zone = await resolveZoneForDomain(integration.apiToken, proxy.domain);
+    if (!zone) {
+      return { created: false, error: `No Cloudflare zone found for ${proxy.domain}` };
+    }
+    const ip = integration.lastPublicIp ?? await getPublicIp();
+    const record = await upsertARecord(integration.apiToken, zone.id, proxy.domain, ip, { proxied: integration.defaultProxied });
+    await prisma.proxyHost.update({
+      where: { id: proxy.id },
+      data: { cloudflareRecordId: record.id, cloudflareProxied: integration.defaultProxied },
+    });
+    return { created: true };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.error(`Cloudflare DNS auto-create failed for ${proxy.domain}:`, error);
+    return { created: false, error };
+  }
+}
+
+// Best-effort, same as autoCreateDnsRecord — a Cloudflare hiccup must never
+// block deleting the proxy itself. Only acts on records rproxy created
+// (tracked via cloudflareRecordId), so it never touches unrelated records.
+async function autoDeleteDnsRecord(proxy: ProxyHost): Promise<void> {
+  if (!proxy.cloudflareRecordId) return;
+
+  try {
+    const integration = await getIntegration();
+    if (!integration?.deleteDnsWithHost) return;
+
+    const zone = await resolveZoneForDomain(integration.apiToken, proxy.domain);
+    if (!zone) return;
+
+    await deleteARecord(integration.apiToken, zone.id, proxy.cloudflareRecordId);
+  } catch (e) {
+    console.error(`Cloudflare DNS auto-delete failed for ${proxy.domain}:`, e instanceof Error ? e.message : String(e));
+  }
+}
+
 export async function redeployProxy(id: string): Promise<void> {
   const proxy = await prisma.proxyHost.findUnique({ where: { id } });
   if (proxy) await deployConfig(proxy).catch(() => {});
@@ -56,7 +107,7 @@ export async function redeployProxy(id: string): Promise<void> {
 export async function createProxy(
   data: ProxyHostFormData,
   userId: string
-): Promise<{ proxy: ProxyHost; deploy: DeployResult }> {
+): Promise<{ proxy: ProxyHost; deploy: DeployResult; dnsRecord?: DnsRecordResult }> {
   const proxy = await prisma.proxyHost.create({
     data: {
       domain: data.domain,
@@ -81,6 +132,7 @@ export async function createProxy(
   });
 
   const deploy = await deployConfig(proxy);
+  const dnsRecord = await autoCreateDnsRecord(proxy);
 
   await prisma.proxyHost.update({
     where: { id: proxy.id },
@@ -97,7 +149,7 @@ export async function createProxy(
     },
   });
 
-  return { proxy, deploy };
+  return { proxy, deploy, dnsRecord };
 }
 
 export async function updateProxy(
@@ -144,6 +196,7 @@ export async function deleteProxy(id: string, userId: string): Promise<DeployRes
   // orphaned config file with no corresponding DB row and no way to retry
   // from the UI.
   const deploy = await removeConfig(proxy);
+  await autoDeleteDnsRecord(proxy);
 
   await prisma.proxyHost.delete({ where: { id } });
 
@@ -183,4 +236,99 @@ export async function toggleProxy(
   });
 
   return { proxy, deploy };
+}
+
+export async function setCloudflareProxied(id: string, proxied: boolean, userId: string): Promise<ProxyHost> {
+  const proxy = await prisma.proxyHost.findUniqueOrThrow({ where: { id } });
+  if (!proxy.cloudflareRecordId) {
+    throw new Error("This proxy has no Cloudflare-managed DNS record");
+  }
+
+  const integration = await getIntegration();
+  if (!integration) throw new Error("Cloudflare is not connected");
+
+  const zone = await resolveZoneForDomain(integration.apiToken, proxy.domain);
+  if (!zone) throw new Error(`No Cloudflare zone found for ${proxy.domain}`);
+
+  await setRecordProxied(integration.apiToken, zone.id, proxy.cloudflareRecordId, proxied);
+
+  const updated = await prisma.proxyHost.update({
+    where: { id },
+    data: { cloudflareProxied: proxied },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "UPDATE",
+      entity: "ProxyHost",
+      entityId: id,
+      details: JSON.stringify({ cloudflareProxied: proxied }),
+    },
+  });
+
+  return updated;
+}
+
+export interface SyncCloudflareResult {
+  linked: number;
+  alreadyLinked: number;
+  notFound: number;
+  errors: string[];
+}
+
+// Backfills cloudflareRecordId/cloudflareProxied for proxies that predate
+// the Cloudflare integration (or were created while it was disabled) by
+// looking up each domain's existing A record — read-only, never creates or
+// modifies a DNS record, so it's safe to run repeatedly.
+export async function syncCloudflareRecords(userId: string): Promise<SyncCloudflareResult> {
+  const integration = await getIntegration();
+  if (!integration) throw new Error("Cloudflare is not connected");
+
+  const zones = await listZones(integration.apiToken);
+  const proxies = await prisma.proxyHost.findMany({
+    select: { id: true, domain: true, cloudflareRecordId: true },
+  });
+
+  const result: SyncCloudflareResult = { linked: 0, alreadyLinked: 0, notFound: 0, errors: [] };
+
+  for (const proxy of proxies) {
+    if (proxy.cloudflareRecordId) {
+      result.alreadyLinked++;
+      continue;
+    }
+
+    try {
+      const zone = matchZoneForDomain(proxy.domain, zones);
+      if (!zone) {
+        result.notFound++;
+        continue;
+      }
+
+      const record = await findARecord(integration.apiToken, zone.id, proxy.domain);
+      if (!record) {
+        result.notFound++;
+        continue;
+      }
+
+      await prisma.proxyHost.update({
+        where: { id: proxy.id },
+        data: { cloudflareRecordId: record.id, cloudflareProxied: record.proxied },
+      });
+      result.linked++;
+    } catch (e) {
+      result.errors.push(`${proxy.domain}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "UPDATE",
+      entity: "ProxyHost",
+      details: JSON.stringify({ cloudflareSync: result }),
+    },
+  });
+
+  return result;
 }
