@@ -63,7 +63,7 @@ async function getCpuUsage(): Promise<{ usage: number; cores: number }> {
   const raw2 = await readFile("/proc/stat", "utf-8");
 
   function parseCpu(raw: string) {
-    const line = /^cpu\s+(.+)$/.exec(raw)?.at(1) ?? "";
+    const line = /^cpu\s+(.+)$/m.exec(raw)?.at(1) ?? "";
     const nums = line.split(" ").map(Number);
     const user = nums[0] ?? 0;
     const nice = nums[1] ?? 0;

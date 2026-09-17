@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   FileText, Play, Pause, RefreshCw, Download,
-  Search, ChevronDown, Loader2, Wifi, WifiOff, Filter,
+  Search, ChevronUp, Loader2, Wifi, WifiOff, Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +49,7 @@ function renderColoredLine(line: string): React.ReactNode[] {
 }
 
 const MAX_LINES = 2000;
+const ALL_LOGS_FILE = "all-access.log";
 
 export function LogViewerClient() {
   const { toast } = useToast();
@@ -63,7 +64,7 @@ export function LogViewerClient() {
 
   const esRef = useRef<EventSource | null>(null);
   const logBodyRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
   const linesRef = useRef<string[]>([]);
 
   // Keep linesRef in sync for callbacks
@@ -75,26 +76,34 @@ export function LogViewerClient() {
       .then((r) => r.json() as Promise<{ success: boolean; data: { files: LogFile[] } }>)
       .then((j) => {
         if (j.success) {
-          setFiles(j.data.files);
-          if (j.data.files.length > 0) setSelectedFile(j.data.files[0]!.name);
+          const sorted = [...j.data.files].sort((a, b) => {
+            if (a.name === ALL_LOGS_FILE) return -1;
+            if (b.name === ALL_LOGS_FILE) return 1;
+            return a.name.localeCompare(b.name);
+          });
+          setFiles(sorted);
+          if (sorted.length > 0) {
+            const preferred = sorted.find((f) => f.name === ALL_LOGS_FILE) ?? sorted[0]!;
+            setSelectedFile(preferred.name);
+          }
         }
       })
       .catch(() => {});
   }, []);
 
-  // Auto-scroll when new lines arrive
+  // Auto-scroll to the newest entry (top) when new lines arrive
   useEffect(() => {
-    if (autoScroll && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    if (autoScroll && topRef.current) {
+      topRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [lines, autoScroll]);
 
-  // Detect manual scroll up → disable auto-scroll
+  // Detect manual scroll down → disable auto-scroll
   const handleScroll = useCallback(() => {
     const el = logBodyRef.current;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-    setAutoScroll(atBottom);
+    const atTop = el.scrollTop < 50;
+    setAutoScroll(atTop);
   }, []);
 
   const appendLines = useCallback((newLines: string[]) => {
@@ -182,10 +191,10 @@ export function LogViewerClient() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFile, liveMode]);
 
-  // Filter lines
-  const filteredLines = search.trim()
+  // Filter lines, newest first
+  const filteredLines = (search.trim()
     ? lines.filter((l) => l.toLowerCase().includes(search.toLowerCase()))
-    : lines;
+    : lines).slice().reverse();
 
   function handleDownload() {
     const blob = new Blob([lines.join("\n")], { type: "text/plain" });
@@ -224,7 +233,9 @@ export function LogViewerClient() {
               </SelectTrigger>
               <SelectContent>
                 {files.map((f) => (
-                  <SelectItem key={f.name} value={f.name}>{f.name}</SelectItem>
+                  <SelectItem key={f.name} value={f.name}>
+                    {f.name === ALL_LOGS_FILE ? "All domains (combined)" : f.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -293,14 +304,14 @@ export function LogViewerClient() {
               <Download className="w-4 h-4" />
             </Button>
 
-            {/* Scroll to bottom */}
+            {/* Scroll to latest */}
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }}
-              title="Scroll to bottom"
+              onClick={() => { setAutoScroll(true); topRef.current?.scrollIntoView({ behavior: "smooth" }); }}
+              title="Scroll to latest"
             >
-              <ChevronDown className="w-4 h-4" />
+              <ChevronUp className="w-4 h-4" />
             </Button>
           </div>
         </CardHeader>
@@ -313,6 +324,7 @@ export function LogViewerClient() {
         className="flex-1 min-h-0 overflow-auto bg-[#0d1117] rounded-xl border border-border font-mono text-xs leading-5 p-4"
         style={{ minHeight: "60vh", maxHeight: "70vh" }}
       >
+        <div ref={topRef} />
         {filteredLines.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground">
             {connStatus === "connecting"
@@ -341,16 +353,15 @@ export function LogViewerClient() {
             </div>
           ))
         )}
-        <div ref={bottomRef} />
       </div>
 
       {!autoScroll && lines.length > 0 && (
         <button
-          onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }}
+          onClick={() => { setAutoScroll(true); topRef.current?.scrollIntoView({ behavior: "smooth" }); }}
           className="fixed bottom-8 right-8 flex items-center gap-2 bg-primary text-primary-foreground text-xs font-medium px-3 py-2 rounded-full shadow-lg hover:opacity-90 transition-opacity"
         >
-          <ChevronDown className="w-3.5 h-3.5" />
-          Scroll to bottom
+          <ChevronUp className="w-3.5 h-3.5" />
+          Scroll to latest
         </button>
       )}
     </div>

@@ -142,6 +142,7 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
   } else {
     lines.push(`    access_log off;`);
   }
+  lines.push(`    access_log /var/log/nginx/all-access.log;`);
   if (proxy.errorLog) {
     lines.push(`    error_log /var/log/nginx/${domainToFilename(domain)}.error.log;`);
   }
@@ -149,7 +150,10 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
 
   // ── SSL certificates ───────────────────────────────────────────────────────
   if (sslEnabled && certPath && keyPath) {
-    lines.push(`    ssl_certificate ${certPath};`);
+    // Serve the full chain (leaf + intermediate) so clients that don't fetch
+    // the intermediate via AIA don't fail closed. Falls back to the leaf-only
+    // cert if no chain was recorded.
+    lines.push(`    ssl_certificate ${chainPath ?? certPath};`);
     lines.push(`    ssl_certificate_key ${keyPath};`);
     if (chainPath) {
       lines.push(`    ssl_trusted_certificate ${chainPath};`);
@@ -248,8 +252,16 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
     lines.push(`        proxy_pass ${forwardScheme}://${upstreamName};`);
     lines.push(`        proxy_http_version 1.1;`);
     if (proxy.websocket) {
+      // Hardcoding "Connection: upgrade" would send it on every request, even
+      // plain ones with no Upgrade header -- some upstreams (e.g. mailcow's
+      // nginx) reject that contradictory pair with 400 Bad Request. Only set
+      // it to "upgrade" when the client actually asked to upgrade.
       lines.push(`        proxy_set_header Upgrade $http_upgrade;`);
-      lines.push(`        proxy_set_header Connection "upgrade";`);
+      lines.push(`        set $connection_upgrade close;`);
+      lines.push(`        if ($http_upgrade) {`);
+      lines.push(`            set $connection_upgrade upgrade;`);
+      lines.push(`        }`);
+      lines.push(`        proxy_set_header Connection $connection_upgrade;`);
     } else {
       lines.push(`        proxy_set_header Connection "";`);
     }
@@ -268,6 +280,12 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
     if (forwardScheme === "https") {
       lines.push(``);
       lines.push(`        proxy_ssl_verify off;`);
+      // Some upstreams (e.g. mailcow's nginx) route by SNI/Host and reject
+      // requests whose TLS SNI doesn't match the Host header with 400 Bad
+      // Request. Without this, nginx sends no meaningful SNI when proxying
+      // to a named upstream block.
+      lines.push(`        proxy_ssl_server_name on;`);
+      lines.push(`        proxy_ssl_name ${domain};`);
     }
   }
 

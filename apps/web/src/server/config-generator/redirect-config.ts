@@ -57,7 +57,7 @@ export function generateRedirectConfig({ redirect, certificate, accessList }: Ge
     lines.push(`    http2 on;`);
     lines.push(`    server_name ${redirect.sourceDomain};`);
     lines.push(``);
-    lines.push(`    ssl_certificate     ${certificate.certPath};`);
+    lines.push(`    ssl_certificate     ${certificate.chainPath ?? certificate.certPath};`);
     lines.push(`    ssl_certificate_key ${certificate.keyPath};`);
     lines.push(`    ssl_protocols TLSv1.2 TLSv1.3;`);
     lines.push(`    ssl_ciphers HIGH:!aNULL:!MD5;`);

@@ -84,6 +84,7 @@ export function generateDefaultServerConfig(opts: {
   lines.push(`    server_name _;`);
   lines.push(``);
   lines.push(`    access_log off;`);
+  lines.push(`    access_log /var/log/nginx/all-access.log;`);
   lines.push(``);
   lines.push(`    location /.well-known/acme-challenge/ {`);
   lines.push(`        root /var/www/html;`);
@@ -102,6 +103,7 @@ export function generateDefaultServerConfig(opts: {
     lines.push(`    server_name _;`);
     lines.push(``);
     lines.push(`    access_log off;`);
+    lines.push(`    access_log /var/log/nginx/all-access.log;`);
     lines.push(`    ssl_certificate ${DEFAULT_CERT_FILE};`);
     lines.push(`    ssl_certificate_key ${DEFAULT_KEY_FILE};`);
     lines.push(``);

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { fireNotification } from "@/server/services/notification.service";
 import type { ProxyHost } from "@prisma/client";
+import http from "http";
 import https from "https";
 import net from "net";
 
@@ -11,10 +12,14 @@ export interface ProbeResult {
   error?: string;
 }
 
-function probeHttps(host: string, port: number, start: number): Promise<ProbeResult> {
+// Uses the raw http/https modules (not fetch) because fetch's Fetch-spec
+// implementation treats "Host" as a forbidden header and silently drops it -
+// we need the real Host header set so name-based virtual hosts on the
+// backend route to the right site instead of whatever vhost is default.
+function probeHttp(mod: typeof http | typeof https, host: string, port: number, start: number, domain: string): Promise<ProbeResult> {
   return new Promise((resolve) => {
-    const req = https.request(
-      { hostname: host, port, path: "/", method: "HEAD", rejectUnauthorized: false, timeout: 5000 },
+    const req = mod.request(
+      { hostname: host, port, path: "/", method: "HEAD", timeout: 5000, headers: { Host: domain }, ...(mod === https ? { rejectUnauthorized: false } : {}) },
       (res) => {
         const responseTime = Date.now() - start;
         const statusCode = res.statusCode ?? 0;
@@ -48,29 +53,13 @@ export async function probeProxy(proxy: ProxyHost): Promise<ProbeResult> {
     return probeTcp(proxy.forwardHost, proxy.forwardPort, start);
   }
 
-  // HTTPS: use native https module so we can disable cert verification
+  // HTTPS: rejectUnauthorized disabled so self-signed backend certs don't count as DOWN
   if (scheme === "https") {
-    return probeHttps(proxy.forwardHost, proxy.forwardPort, start);
+    return probeHttp(https, proxy.forwardHost, proxy.forwardPort, start, proxy.domain);
   }
 
   // HTTP
-  const url = `http://${proxy.forwardHost}:${proxy.forwardPort}/`;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    let statusCode: number;
-    try {
-      const res = await fetch(url, { signal: controller.signal, redirect: "manual", method: "HEAD" });
-      statusCode = res.status;
-    } finally {
-      clearTimeout(timer);
-    }
-    const responseTime = Date.now() - start;
-    return { status: statusCode > 0 && statusCode < 500 ? "UP" : "DOWN", statusCode, responseTime };
-  } catch (e) {
-    const err = e as Error;
-    return { status: "DOWN", responseTime: Date.now() - start, error: err.name === "AbortError" ? "Timeout after 5s" : (err.message ?? "Connection refused") };
-  }
+  return probeHttp(http, proxy.forwardHost, proxy.forwardPort, start, proxy.domain);
 }
 
 // Keeps at most 50 rows per host. A single windowed DELETE across the whole
