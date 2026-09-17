@@ -11,9 +11,14 @@ const CHANGE_PASSWORD_PATH = "/change-password";
 const MFA_PATH = "/mfa";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-// Bearer-token endpoints (e.g. the cron secret), not cookie-authenticated —
-// CSRF doesn't apply since there's no ambient browser credential to forge.
-const CSRF_EXEMPT_PREFIXES = ["/api/cron/"];
+// Bearer-token / shared-secret endpoints, not cookie-authenticated — CSRF
+// doesn't apply since there's no ambient browser credential to forge.
+// /api/gateway/auth-check is nginx's auth_request target (internal-only,
+// authenticated by GATEWAY_AUTH_SECRET + the presented API key, checked in
+// the route handler itself) — without this exemption every auth_request
+// subrequest would be rejected here with 401 before it ever reaches that
+// check, since it carries no session cookie.
+const CSRF_EXEMPT_PREFIXES = ["/api/cron/", "/api/gateway/auth-check"];
 // Generous for JSON bodies this app actually sends (cert/chain PEMs, config
 // text fields are all individually capped far below this) — this exists to
 // stop someone streaming an unbounded body at an endpoint, not to constrain

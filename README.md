@@ -143,7 +143,7 @@ Every config deploy is transactional: the previous config is backed up, the new 
 
 ## Development
 
-You'll need a local PostgreSQL instance. Then:
+You'll need a local PostgreSQL instance and a local Redis instance (used by the API Gateway's per-customer rate-limit/quota counters). Then:
 
 ```bash
 cd apps/web
@@ -153,6 +153,8 @@ cp .env.example .env.local
 #   JWT_SECRET / JWT_REFRESH_SECRET — any long random strings
 #   NEXTAUTH_URL — http://localhost:3000
 #   CRON_SECRET — any string
+#   REDIS_URL — point at your local Redis (default redis://127.0.0.1:6379 is fine)
+#   GATEWAY_AUTH_SECRET — any string (shared secret between nginx and the internal API Gateway auth endpoint)
 pnpm install
 npx prisma db push
 npx prisma db seed

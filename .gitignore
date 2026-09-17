@@ -9,6 +9,7 @@ apps/web/.env.local
 # Next.js build output
 apps/web/.next/
 apps/web/out/
+apps/web/tsconfig.tsbuildinfo
 
 # Turbo cache
 .turbo/

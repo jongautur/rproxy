@@ -5,7 +5,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Globe, Lock, FileText, Settings,
-  Server, LogOut, ShieldCheck, Activity, X,
+  Server, LogOut, ShieldCheck, Activity, X, Plug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/proxies", icon: Globe, label: "Hosts" },
+  { href: "/api-gateway", icon: Plug, label: "API Gateway" },
   { href: "/certificates", icon: Lock, label: "Certificates" },
   { href: "/logs", icon: FileText, label: "Logs" },
   { href: "/system", icon: Server, label: "System" },

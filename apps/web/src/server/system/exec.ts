@@ -134,7 +134,14 @@ export async function nginxHelper(
   cmd: "deploy" | "backup" | "restore" | "enable" | "disable" | "remove" | "mkdir-ssl"
       | "log-size" | "log-clean"
       | "mkdir-access-lists" | "deploy-htpasswd" | "remove-htpasswd"
-      | "stream-deploy" | "stream-backup" | "stream-restore" | "stream-remove" | "mkdir-stream",
+      | "stream-deploy" | "stream-backup" | "stream-restore" | "stream-remove" | "mkdir-stream"
+      // confd-* verbs take a caller-supplied filename (validated below,
+      // same .conf pattern as sites-available filenames) — this used to be
+      // hardcoded to the single real-ip snippet inside the helper script;
+      // generalized so the API Gateway's shared limit_req_zone file can
+      // reuse the same conf.d deploy transaction. See
+      // nginx-deploy.service.ts's deployConfDConfig().
+      | "confd-deploy" | "confd-backup" | "confd-restore" | "confd-remove",
   arg?: string
 ): Promise<ExecResult> {
   const helperPath = "/usr/local/libexec/rproxy-nginx-helper";

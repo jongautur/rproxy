@@ -15,11 +15,11 @@ enum Role {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  username     String   @unique
-  email        String   @unique
-  firstName    String?  @map("first_name")
-  lastName     String?  @map("last_name")
+  id                 String   @id @default(cuid())
+  username           String   @unique
+  email              String   @unique
+  firstName          String?  @map("first_name")
+  lastName           String?  @map("last_name")
   passwordHash       String   @map("password_hash")
   role               Role     @default(VIEWER)
   // Bumped on role change, password change, or forced logout. Embedded in
@@ -28,10 +28,10 @@ model User {
   tokenVersion       Int      @default(0) @map("token_version")
   mustChangePassword Boolean  @default(false) @map("must_change_password")
   totpEnabled        Boolean  @default(false) @map("totp_enabled")
-  totpSecret         String?  @map("totp_secret")   // AES-256-GCM encrypted
+  totpSecret         String?  @map("totp_secret") // AES-256-GCM encrypted
   totpBackupCodes    String[] @map("totp_backup_codes") // bcrypt-hashed
   createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   auditLogs AuditLog[]
 
@@ -47,27 +47,27 @@ enum ProxyStatus {
 }
 
 model ProxyHost {
-  id          String      @id @default(cuid())
-  domain      String      @unique
-  forwardScheme String    @default("http") @map("forward_scheme")
-  forwardHost String      @map("forward_host")
-  forwardPort Int         @map("forward_port")
-  listenPort  Int         @default(80) @map("listen_port")
-  httpsPort   Int         @default(443) @map("https_port")
-  sslEnabled  Boolean     @default(false) @map("ssl_enabled")
-  forceHttps  Boolean     @default(false) @map("force_https")
-  http2       Boolean     @default(false)
-  websocket   Boolean     @default(false)
-  accessLog   Boolean     @default(true) @map("access_log")
-  errorLog    Boolean     @default(true) @map("error_log")
+  id            String  @id @default(cuid())
+  domain        String  @unique
+  forwardScheme String  @default("http") @map("forward_scheme")
+  forwardHost   String  @map("forward_host")
+  forwardPort   Int     @map("forward_port")
+  listenPort    Int     @default(80) @map("listen_port")
+  httpsPort     Int     @default(443) @map("https_port")
+  sslEnabled    Boolean @default(false) @map("ssl_enabled")
+  forceHttps    Boolean @default(false) @map("force_https")
+  http2         Boolean @default(false)
+  websocket     Boolean @default(false)
+  accessLog     Boolean @default(true) @map("access_log")
+  errorLog      Boolean @default(true) @map("error_log")
 
   customLocations String? @map("custom_locations")
   customServer    String? @map("custom_server")
   customHeaders   String? @map("custom_headers")
 
-  status    ProxyStatus @default(ACTIVE)
-  enabled   Boolean     @default(true)
-  configPath String?    @map("config_path")
+  status     ProxyStatus @default(ACTIVE)
+  enabled    Boolean     @default(true)
+  configPath String?     @map("config_path")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -75,15 +75,18 @@ model ProxyHost {
   certificate   Certificate? @relation(fields: [certificateId], references: [id])
   certificateId String?      @map("certificate_id")
 
-  healthChecks  HealthCheck[]
-  trafficStats  TrafficStat[]
+  healthChecks HealthCheck[]
+  trafficStats TrafficStat[]
 
   accessList   AccessList? @relation(fields: [accessListId], references: [id], onDelete: SetNull)
   accessListId String?     @map("access_list_id")
 
+  // Cloudflare DNS record id if auto-created for this proxy — see CloudflareIntegration.
+  cloudflareRecordId String? @map("cloudflare_record_id")
+  cloudflareProxied  Boolean @default(false) @map("cloudflare_proxied")
+
   @@map("proxy_hosts")
 }
-
 
 // ── Redirect Hosts ────────────────────────────────────────────────────────────
 
@@ -156,6 +159,7 @@ model Certificate {
 
   proxyHosts    ProxyHost[]
   redirectHosts RedirectHost[]
+  Api           Api[]
 
   @@map("certificates")
 }
@@ -209,23 +213,22 @@ model AuditLog {
   ipAddress String?     @map("ip_address")
   createdAt DateTime    @default(now()) @map("created_at")
 
-  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([createdAt(sort: Desc)])
   @@index([userId])
   @@map("audit_logs")
 }
 
-
 // ── Traffic Stats ─────────────────────────────────────────────────────────────
 
 model TrafficStat {
-  id          String    @id @default(cuid())
-  proxyHostId String    @map("proxy_host_id")
-  hour        DateTime  // truncated to the hour (UTC)
-  requests    Int       @default(0)
-  bytes       BigInt    @default(0)
-  errors      Int       @default(0)
+  id          String   @id @default(cuid())
+  proxyHostId String   @map("proxy_host_id")
+  hour        DateTime // truncated to the hour (UTC)
+  requests    Int      @default(0)
+  bytes       BigInt   @default(0)
+  errors      Int      @default(0)
 
   proxyHost ProxyHost @relation(fields: [proxyHostId], references: [id], onDelete: Cascade)
 
@@ -238,10 +241,10 @@ model TrafficStat {
 
 model NotificationChannel {
   id        String   @id @default(cuid())
-  type      String   // "email" | "webhook" | "home_assistant"
+  type      String // "email" | "webhook" | "home_assistant"
   label     String   @default("")
   enabled   Boolean  @default(true)
-  config    String   // AES-256-GCM encrypted JSON
+  config    String // AES-256-GCM encrypted JSON
   // JSON array of event types this channel receives, e.g.
   // ["host_down","cert_renewal_failed"]. Not encrypted — not secret.
   events    String   @default("[\"host_down\",\"host_up\",\"cert_expiring\",\"cert_renewal_failed\"]")
@@ -261,22 +264,41 @@ model Setting {
   @@map("settings")
 }
 
+// ── Cloudflare Integration ────────────────────────────────────────────────────
+
+// Singleton row (id is always "singleton") — one Cloudflare account per install.
+model CloudflareIntegration {
+  id                String    @id @default("singleton")
+  apiTokenEncrypted String    @map("api_token_encrypted") // AES-256-GCM encrypted JSON, see src/lib/encrypt.ts
+  ddnsEnabled       Boolean   @default(false) @map("ddns_enabled")
+  autoDnsEnabled    Boolean   @default(false) @map("auto_dns_enabled")
+  defaultProxied    Boolean   @default(false) @map("default_proxied")
+  proxyAfterSsl     Boolean   @default(false) @map("proxy_after_ssl")
+  deleteDnsWithHost Boolean   @default(false) @map("delete_dns_with_host")
+  lastPublicIp      String?   @map("last_public_ip")
+  lastCheckedAt     DateTime? @map("last_checked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("cloudflare_integration")
+}
+
 // ── Access Lists ──────────────────────────────────────────────────────────────
 
 model AccessList {
-  id          String  @id @default(cuid())
-  name        String  @unique
-  authEnabled Boolean @default(false) @map("auth_enabled")
-  authRealm   String  @default("Restricted") @map("auth_realm")
+  id            String  @id @default(cuid())
+  name          String  @unique
+  authEnabled   Boolean @default(false) @map("auth_enabled")
+  authRealm     String  @default("Restricted") @map("auth_realm")
   // What happens when no explicit ipRule matches: "deny" makes the rule
   // list an allowlist (allow the listed addresses, deny everyone else —
   // the historical/default behavior), "allow" makes it a denylist (block
   // the listed addresses, allow everyone else).
-  defaultAction String @default("deny") @map("default_action")
+  defaultAction String  @default("deny") @map("default_action")
 
-  authUsers    AccessListUser[]
-  ipRules      AccessListIpRule[]
-  proxyHosts   ProxyHost[]
+  authUsers     AccessListUser[]
+  ipRules       AccessListIpRule[]
+  proxyHosts    ProxyHost[]
   redirectHosts RedirectHost[]
   streamHosts   StreamHost[]
 
@@ -287,10 +309,10 @@ model AccessList {
 }
 
 model AccessListUser {
-  id           String     @id @default(cuid())
-  accessListId String     @map("access_list_id")
+  id           String @id @default(cuid())
+  accessListId String @map("access_list_id")
   username     String
-  passwordHash String     @map("password_hash")
+  passwordHash String @map("password_hash")
 
   accessList AccessList @relation(fields: [accessListId], references: [id], onDelete: Cascade)
 
@@ -299,11 +321,11 @@ model AccessListUser {
 }
 
 model AccessListIpRule {
-  id           String     @id @default(cuid())
-  accessListId String     @map("access_list_id")
+  id           String @id @default(cuid())
+  accessListId String @map("access_list_id")
   address      String
-  action       String     @default("allow")
-  sortOrder    Int        @default(0) @map("sort_order")
+  action       String @default("allow")
+  sortOrder    Int    @default(0) @map("sort_order")
 
   accessList AccessList @relation(fields: [accessListId], references: [id], onDelete: Cascade)
 
@@ -317,7 +339,7 @@ model AccessListIpRule {
 model StreamHost {
   id          String  @id @default(cuid())
   name        String  @unique
-  protocol    String  @default("TCP")   // TCP | UDP | TCP_UDP
+  protocol    String  @default("TCP") // TCP | UDP | TCP_UDP
   listenPort  Int     @map("listen_port")
   forwardHost String  @map("forward_host")
   forwardPort Int     @map("forward_port")
@@ -330,8 +352,262 @@ model StreamHost {
   status          ProxyStatus @default(ACTIVE)
   lastDeployError String?     @map("last_deploy_error")
 
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("stream_hosts")
+}
+
+// ── API Gateway ───────────────────────────────────────────────────────────────
+//
+// Customer-facing API proxying with per-key auth, rate limiting, and quotas.
+// nginx still does the actual proxying (auth_request, limit_req); Redis
+// tracks live per-customer rate/quota counters (never Postgres — see
+// gateway-auth.service.ts); ApiUsage here is a periodic, flushed-from-Redis
+// analytics rollup only, not the enforcement path.
+
+enum ApiRouteMethod {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+  // ANY removed — "no restriction" is an empty ApiRoute.methods /
+  // ApiKeyRouteScope.methods array instead of a sixth enum member.
+}
+
+model Api {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  domain      String  @unique
+  basePath    String  @default("") @map("base_path") // e.g. "/api" — prefixed to every route's path
+  description String?
+
+  listenPort Int     @default(80) @map("listen_port")
+  httpsPort  Int     @default(443) @map("https_port")
+  sslEnabled Boolean @default(false) @map("ssl_enabled")
+
+  // Fallback server-level safety limit (feeds a static nginx limit_req_zone)
+  // for routes that don't set their own — protects the backend regardless
+  // of caller. Customer-differentiated limits are enforced separately via
+  // Redis in gateway-auth.service.ts, not by this.
+  maxRequestsPerSecond Int? @map("max_requests_per_second")
+  maxBodySizeMb        Int? @map("max_body_size_mb")
+
+  // Off by default. When on, OPTIONS preflight requests bypass auth_request
+  // entirely and get a permissive CORS response — see api-gateway-config.ts.
+  corsEnabled Boolean @default(false) @map("cors_enabled")
+
+  status     ProxyStatus @default(ACTIVE)
+  enabled    Boolean     @default(true)
+  configPath String?     @map("config_path")
+
+  certificate   Certificate? @relation(fields: [certificateId], references: [id], onDelete: SetNull)
+  certificateId String?      @map("certificate_id")
+
+  routes ApiRoute[]
+  access ApiAccess[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("apis")
+}
+
+model ApiRoute {
+  id      String           @id @default(cuid())
+  apiId   String           @map("api_id")
+  path    String // appended to Api.basePath
+  // Empty = any method.
+  methods ApiRouteMethod[] @default([]) @map("methods")
+
+  upstreamScheme String  @default("http") @map("upstream_scheme")
+  upstreamHost   String  @map("upstream_host") // private backend, e.g. Nominatim — never exposed directly
+  upstreamPort   Int     @map("upstream_port")
+  upstreamPath   String? @map("upstream_path") // optional rewrite target; null = pass-through
+
+  authRequired         Boolean @default(true) @map("auth_required")
+  maxRequestsPerSecond Int?    @map("max_requests_per_second") // overrides Api's fallback when set
+  enabled              Boolean @default(true)
+
+  api         Api                @relation(fields: [apiId], references: [id], onDelete: Cascade)
+  routeAccess ApiRouteAccess[]
+  keyScopes   ApiKeyRouteScope[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // One route = one location block = one upstream, serving a defined
+  // method set — dropping `method` from this key means two different
+  // upstreams can no longer be split across methods for the same path
+  // (use two different paths for that instead). Confirmed no live data
+  // relies on the old [apiId, path, method] shape before this change.
+  @@unique([apiId, path])
+  @@index([apiId])
+  @@map("api_routes")
+}
+
+model Customer {
+  id      String  @id @default(cuid())
+  name    String
+  email   String? @unique
+  enabled Boolean @default(true)
+  notes   String?
+
+  apiKeys     ApiKey[]
+  access      ApiAccess[]
+  routeAccess ApiRouteAccess[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("customers")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  customerId String    @map("customer_id")
+  label      String    @default("")
+  // Non-secret lookup/display prefix shown in the UI, e.g. "rpk_ab12cd34" —
+  // never sufficient on its own to authenticate.
+  keyPrefix  String    @unique @map("key_prefix")
+  // SHA-256 of the full generated key. The ONLY form the key is ever stored
+  // in — the plaintext is shown once at generation time and never
+  // persisted or logged again.
+  keyHash    String    @unique @map("key_hash")
+  enabled    Boolean   @default(true)
+  expiresAt  DateTime? @map("expires_at")
+  // Updated on a delay via a periodic Redis-backed flush, never per-request
+  // — see usage-flush.service.ts.
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  // When true, this key may ONLY reach routes listed in scopedRoutes — an
+  // explicit allowlist, which can end up empty (blocking the key entirely)
+  // without silently reverting to unrestricted, e.g. if every scoped route
+  // is later deleted (ApiKeyRouteScope cascades on route delete, but this
+  // flag doesn't). False (default) means unrestricted — scopedRoutes rows
+  // are simply not consulted while this is false, kept only so toggling
+  // the restriction back on doesn't lose a previous selection.
+  scopeRestricted Boolean @default(false) @map("scope_restricted")
+
+  customer     Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  scopedRoutes ApiKeyRouteScope[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@map("api_keys")
+}
+
+// A key's route allowlist — only enforced while ApiKey.scopeRestricted is
+// true (see that field's comment for why this is a separate boolean rather
+// than inferring "restricted" from row presence).
+model ApiKeyRouteScope {
+  id       String @id @default(cuid())
+  apiKeyId String @map("api_key_id")
+  routeId  String @map("route_id")
+
+  // Empty = inherit every method the route itself allows (the default).
+  // Non-empty = this key may only use this subset, which must be a subset
+  // of the route's own `ApiRoute.methods`.
+  methods ApiRouteMethod[] @default([]) @map("methods")
+
+  apiKey ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  route  ApiRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([apiKeyId, routeId])
+  @@index([apiKeyId])
+  @@index([routeId])
+  @@map("api_key_route_scopes")
+}
+
+// The actual grant: this row existing (enabled, not expired) is what lets a
+// Customer's keys call anything under this Api at all. Also supplies the
+// DEFAULT rate/quota for every route under the Api, unless overridden
+// per-route by ApiRouteAccess. Deliberately API-scoped only (no nullable
+// routeId here) — see ApiRouteAccess for why.
+model ApiAccess {
+  id         String  @id @default(cuid())
+  customerId String  @map("customer_id")
+  apiId      String  @map("api_id")
+  enabled    Boolean @default(true)
+
+  // Customer-wide requests/sec ceiling for this Api, enforced live via
+  // Redis (keyed by customerId, shared across all of the customer's keys —
+  // see gateway-auth.service.ts). Null = no customer-level rate cap (only
+  // the static per-route nginx limit_req applies).
+  rateLimitOverride Int?      @map("rate_limit_override")
+  dailyQuota        Int?      @map("daily_quota")
+  monthlyQuota      Int?      @map("monthly_quota")
+  expiresAt         DateTime? @map("expires_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  api      Api      @relation(fields: [apiId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([customerId, apiId])
+  @@index([apiId])
+  @@map("api_access")
+}
+
+// Optional per-route override of an existing ApiAccess grant. Can tighten
+// OR loosen limits for one route, or explicitly disable just that route for
+// an otherwise-granted customer (enabled = false). A route with no
+// ApiRouteAccess row simply inherits everything from the parent ApiAccess.
+//
+// This is a SEPARATE model from ApiAccess (rather than a nullable routeId
+// on ApiAccess) because Postgres unique constraints treat NULL as distinct
+// from every other NULL — @@unique([customerId, apiId, routeId]) with a
+// nullable routeId would silently NOT stop duplicate API-wide grants for
+// the same customer+api. Splitting the models keeps both unique
+// constraints airtight: ApiAccess's [customerId, apiId] and this model's
+// [customerId, routeId] are both fully non-nullable.
+model ApiRouteAccess {
+  id         String  @id @default(cuid())
+  customerId String  @map("customer_id")
+  routeId    String  @map("route_id")
+  enabled    Boolean @default(true)
+
+  rateLimitOverride Int?      @map("rate_limit_override")
+  dailyQuota        Int?      @map("daily_quota")
+  monthlyQuota      Int?      @map("monthly_quota")
+  expiresAt         DateTime? @map("expires_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  route    ApiRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([customerId, routeId])
+  @@index([routeId])
+  @@map("api_route_access")
+}
+
+// Persisted analytics only, populated by a periodic flush from Redis
+// (usage-flush.service.ts) — NEVER written per-request. Narrowed to what
+// the gateway itself can observe: auth_request runs before proxy_pass, so
+// it has no visibility into the backend's actual response status or
+// latency (that would need nginx access-log parsing on the API Gateway
+// sites, same mechanism as TrafficStat/log-parser.ts — out of V1 scope).
+model ApiUsage {
+  id         String   @id @default(cuid())
+  customerId String   @map("customer_id")
+  apiId      String   @map("api_id")
+  routeId    String?  @map("route_id")
+  hour       DateTime // truncated to the hour (UTC), like TrafficStat
+  allowed    Int      @default(0) // requests admitted through auth_request
+  denied     Int      @default(0) // 401/403 — bad key, no grant, disabled/expired
+  throttled  Int      @default(0) // 429 — rate limit or quota exceeded
+
+  @@unique([customerId, apiId, routeId, hour])
+  @@index([customerId, hour(sort: Desc)])
+  @@index([apiId, hour(sort: Desc)])
+  @@map("api_usage")
 }

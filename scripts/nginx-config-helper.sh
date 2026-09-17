@@ -15,6 +15,25 @@ SITES_AVAILABLE="/etc/nginx/sites-available"
 SITES_ENABLED="/etc/nginx/sites-enabled"
 SSL_DIR="/etc/nginx/ssl"
 STAGING_DIR="/var/lib/rproxy/staging"
+CONF_D="/etc/nginx/conf.d"
+# conf.d is included at the http level and applies to every site, so this
+# needs a tighter leash than sites-available: rather than accepting any
+# caller-supplied .conf name (as sites-available/stream.d operations do),
+# confd-* verbs only ever act on one of these two known filenames. Add a
+# new name here deliberately — never widen this to "any .conf name".
+ALLOWED_CONFD_FILES="rproxy-real-ip.conf rproxy-apigw-zones.conf"
+
+validate_confd_filename() {
+  local name="$1"
+  local allowed
+  for allowed in $ALLOWED_CONFD_FILES; do
+    if [[ "$name" == "$allowed" ]]; then
+      return 0
+    fi
+  done
+  echo "ERROR: Not an allowed conf.d filename: $name" >&2
+  exit 1
+}
 
 # Validate that a filename is a safe .conf name (no path traversal)
 validate_conf_filename() {
@@ -206,7 +225,70 @@ case "$CMD" in
     echo "OK: htpasswd removed for $ID"
     ;;
 
+  confd-deploy)
+    # Usage: confd-deploy <filename.conf> — filename must be one of $ALLOWED_CONFD_FILES
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    validate_confd_filename "$FILENAME"
+    SRC="$STAGING_DIR/$FILENAME"
+    DST="$CONF_D/$FILENAME"
+    validate_path_in_dir "$SRC" "$STAGING_DIR"
+    validate_path_in_dir "$DST" "$CONF_D"
+    if [[ ! -f "$SRC" ]]; then
+      echo "ERROR: Staging file not found: $SRC" >&2
+      exit 1
+    fi
+    mkdir -p "$CONF_D"
+    cp -- "$SRC" "$DST.tmp.$$"
+    mv -f -- "$DST.tmp.$$" "$DST"
+    echo "OK: deployed $FILENAME to $CONF_D"
+    ;;
 
+  confd-backup)
+    # Usage: confd-backup <filename.conf>
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    validate_confd_filename "$FILENAME"
+    DST="$CONF_D/$FILENAME"
+    validate_path_in_dir "$DST" "$CONF_D"
+    mkdir -p "$STAGING_DIR"
+    if [[ -f "$DST" ]]; then
+      cp -- "$DST" "$STAGING_DIR/${FILENAME}.bak"
+    else
+      rm -f -- "$STAGING_DIR/${FILENAME}.bak"
+    fi
+    echo "OK: backed up $FILENAME"
+    ;;
+
+  confd-restore)
+    # Usage: confd-restore <filename.conf>
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    validate_confd_filename "$FILENAME"
+    DST="$CONF_D/$FILENAME"
+    validate_path_in_dir "$DST" "$CONF_D"
+    BAK="$STAGING_DIR/${FILENAME}.bak"
+    if [[ -f "$BAK" ]]; then
+      cp -- "$BAK" "$DST.tmp.$$"
+      mv -f -- "$DST.tmp.$$" "$DST"
+      rm -f -- "$BAK"
+    else
+      rm -f -- "$DST"
+    fi
+    echo "OK: restored $FILENAME"
+    ;;
+
+  confd-remove)
+    # Usage: confd-remove <filename.conf> — used when e.g. the admin
+    # disables real-ip entirely, or the last rate-limited API route is removed
+    FILENAME="${2:-}"
+    validate_conf_filename "$FILENAME"
+    validate_confd_filename "$FILENAME"
+    DST="$CONF_D/$FILENAME"
+    validate_path_in_dir "$DST" "$CONF_D"
+    rm -f -- "$DST"
+    echo "OK: removed $FILENAME"
+    ;;
 
   stream-deploy)
     # Usage: stream-deploy <filename.conf>
@@ -335,7 +417,7 @@ case "$CMD" in
 
   *)
     echo "ERROR: Unknown command: $CMD" >&2
-    echo "Usage: $0 {deploy|backup|restore|enable|disable|remove|mkdir-ssl|stream-deploy|stream-backup|stream-restore|stream-remove} [filename.conf]" >&2
+    echo "Usage: $0 {deploy|backup|restore|enable|disable|remove|mkdir-ssl|confd-deploy|confd-backup|confd-restore|confd-remove|stream-deploy|stream-backup|stream-restore|stream-remove} [filename.conf]" >&2
     exit 1
     ;;
 esac

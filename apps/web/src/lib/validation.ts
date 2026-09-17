@@ -42,7 +42,11 @@ export const forwardHostSchema = z
 // collided with the app's own port. Forwarding TO the app's port (e.g.
 // fronting the rproxy GUI itself with a real domain + TLS) is fine and
 // common — only the *listen* side is a hard conflict.
-function getAppPort(): number {
+// Exported for the API Gateway config-generator, which needs the app's own
+// port to build the internal auth_request proxy_pass target
+// (http://127.0.0.1:<appPort>/api/gateway/auth-check) — see
+// api-gateway-config.ts.
+export function getAppPort(): number {
   try {
     const url = new URL(process.env.NEXTAUTH_URL ?? "http://localhost:81");
     return url.port ? Number(url.port) : (url.protocol === "https:" ? 443 : 80);
@@ -121,17 +125,105 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(256),
 });
 
+// ── API Gateway ───────────────────────────────────────────────────────────────
+
+// Base path / route path — must start with "/", no ".." traversal, no
+// characters that could break out of an nginx location match.
+const API_PATH_REGEX = /^\/[a-zA-Z0-9_\-./]*$/;
+const apiPathSchema = z
+  .string()
+  .max(512)
+  .refine((v) => v === "" || (API_PATH_REGEX.test(v) && !v.includes("..")), "Must start with / and contain only safe path characters");
+
+export const apiSchema = z.object({
+  name: z.string().min(1).max(128),
+  domain: domainSchema,
+  basePath: apiPathSchema.default(""),
+  description: z.string().max(1024).optional(),
+  listenPort: portSchema.default(80),
+  httpsPort: portSchema.default(443),
+  sslEnabled: z.boolean().default(false),
+  maxRequestsPerSecond: z.number().int().min(1).max(100_000).optional(),
+  maxBodySizeMb: z.number().int().min(1).max(10_000).optional(),
+  corsEnabled: z.boolean().default(false),
+  certificateId: z.string().cuid().optional(),
+});
+
+export const apiRouteMethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+
+export const apiRouteSchema = z.object({
+  path: apiPathSchema.refine((v) => v !== "", "Route path is required"),
+  // Empty = any method (was a single value defaulting to the sentinel
+  // "ANY"; now a set, with an empty set meaning the same thing).
+  methods: z.array(apiRouteMethodSchema).max(5).default([]),
+  upstreamScheme: z.enum(["http", "https"]).default("http"),
+  upstreamHost: forwardHostSchema,
+  upstreamPort: portSchema,
+  upstreamPath: apiPathSchema.optional(),
+  authRequired: z.boolean().default(true),
+  maxRequestsPerSecond: z.number().int().min(1).max(100_000).optional(),
+  enabled: z.boolean().default(true),
+});
+
+export const customerSchema = z.object({
+  name: z.string().min(1).max(128),
+  email: z.string().email().max(256).optional(),
+  enabled: z.boolean().default(true),
+  notes: z.string().max(2048).optional(),
+});
+
+export const apiKeyCreateSchema = z.object({
+  label: z.string().max(128).default(""),
+  expiresAt: z.coerce.date().optional(),
+});
+
+export const apiKeyScopeSchema = z.object({
+  scopeRestricted: z.boolean(),
+  // Per selected route, an optional method subset — empty means "inherit
+  // whatever the route itself allows" (validated as an actual subset of
+  // the route's own methods in setKeyScope, since a route's methods aren't
+  // known at the zod-schema layer).
+  routes: z.array(z.object({
+    routeId: z.string().cuid(),
+    methods: z.array(apiRouteMethodSchema).max(5).default([]),
+  })).max(500),
+});
+
+// Shared shape for both the API-level grant (ApiAccess) and the per-route
+// override (ApiRouteAccess) — same override fields, different parent.
+const accessLimitFields = {
+  enabled: z.boolean().default(true),
+  rateLimitOverride: z.number().int().min(1).max(1_000_000).optional(),
+  dailyQuota: z.number().int().min(1).optional(),
+  monthlyQuota: z.number().int().min(1).optional(),
+  expiresAt: z.coerce.date().optional(),
+};
+
+export const apiAccessSchema = z.object({
+  apiId: z.string().cuid(),
+  ...accessLimitFields,
+});
+
+export const apiRouteAccessSchema = z.object({
+  routeId: z.string().cuid(),
+  ...accessLimitFields,
+});
+
+// Used by the nested apis/[id]/routes/[routeId]/access endpoint, where
+// routeId already comes from the URL — the customer being granted the
+// override is the only identifier still needed in the body.
+export const apiRouteAccessCreateSchema = z.object({
+  customerId: z.string().cuid(),
+  ...accessLimitFields,
+});
+
 // ── Custom directives safety check ───────────────────────────────────────────
 // These directives are admin-only free text inserted close to verbatim into
 // the generated nginx config (see nginx-config.ts / redirect-config.ts), so
 // this isn't a sandbox in the sense of stopping a fully malicious admin —
 // admins can already break or materially alter nginx through this field.
 // It exists to catch context-escape and RCE-adjacent mistakes/payloads:
-// blocks directives that could enable exec or include arbitrary files, and
-// blocks braces so a line can't close the current server/location block and
-// open a new one (or the reverse) — a blocklist can't safely reason about
-// brace balance or nesting context, so any brace is rejected outright
-// rather than trying to allow "balanced" ones.
+// blocks directives that could enable exec or include arbitrary files.
 const BLOCKED_NGINX_DIRECTIVES = [
   /perl_set/i,
   /set_by_lua/i,
@@ -140,11 +232,42 @@ const BLOCKED_NGINX_DIRECTIVES = [
   /rewrite_by_lua/i,
   /\binclude\s+/i,           // block all includes (prevents arbitrary file disclosure)
   /load_module/i,
-  /[{}]/,                    // no nested blocks / context escapes — one directive per line
 ];
 
+// Braces are only allowed to form a "location <path> { ... }" block — the
+// one nesting shape the generator itself emits this field into (see
+// nginx-config.ts). Every opening line must be a bare `location ... {`, every
+// closing line must be a bare `}`, and depth must never go negative or end
+// above zero — that rules out a line closing the *enclosing* context early
+// (context escape) or opening any other block type (server, http, if-lua,
+// etc.), without banning braces outright.
+const LOCATION_OPEN_RE = /^location\s+\S.*\{$/;
+
+function hasWellFormedLocationBraces(directive: string): boolean {
+  let depth = 0;
+  for (const rawLine of directive.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const opens = (line.match(/\{/g) ?? []).length;
+    const closes = (line.match(/\}/g) ?? []).length;
+    if (opens === 0 && closes === 0) continue;
+    if (opens === 1 && closes === 0 && LOCATION_OPEN_RE.test(line)) {
+      depth++;
+      continue;
+    }
+    if (opens === 0 && closes === 1 && line === "}") {
+      depth--;
+      if (depth < 0) return false;
+      continue;
+    }
+    return false; // any other brace usage — reject
+  }
+  return depth === 0;
+}
+
 export function validateNginxDirective(directive: string): boolean {
-  return !BLOCKED_NGINX_DIRECTIVES.some((r) => r.test(directive));
+  return !BLOCKED_NGINX_DIRECTIVES.some((r) => r.test(directive))
+    && hasWellFormedLocationBraces(directive);
 }
 
 // ── Sanitize for nginx config values ─────────────────────────────────────────

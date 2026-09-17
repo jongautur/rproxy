@@ -16,6 +16,9 @@ env:
   JWT_REFRESH_SECRET: "ci-only-secret-not-used-in-production-bbbbbbbb"
   CRON_SECRET: "ci-only-secret"
   NEXTAUTH_URL: "http://localhost:81"
+  REDIS_URL: "redis://127.0.0.1:6379"
+  GATEWAY_AUTH_SECRET: "ci-only-secret-not-used-in-production-cccccccc"
+  GATEWAY_REDIS_FAIL_OPEN: "true"
 
 jobs:
   shellcheck:
@@ -36,10 +39,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install nginx (for the config-generator integration test)
+      - name: Install nginx and redis (for the config-generator/gateway integration tests)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq nginx
+          sudo apt-get install -y -qq nginx redis-server
+          sudo systemctl start redis-server
 
       - uses: pnpm/action-setup@v4
         with:

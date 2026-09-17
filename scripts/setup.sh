@@ -47,7 +47,7 @@ as_root apt-get update -qq
 as_root apt-get install -y -qq \
   curl wget git build-essential ca-certificates \
   nginx libnginx-mod-stream openssl socat cron \
-  postgresql postgresql-contrib \
+  postgresql postgresql-contrib redis-server \
   gnupg lsb-release sudo libcap2-bin
 success "System packages installed"
 
@@ -113,6 +113,16 @@ info "Configuring PostgreSQL..."
 as_root systemctl enable postgresql
 as_root systemctl start postgresql
 
+# ── 5b. Redis ─────────────────────────────────────────────────────────────────
+# Used only for API Gateway per-customer rate-limit/quota counters (ephemeral,
+# short-TTL keys — losing them on a restart just resets limits early, which is
+# safe to accept). Ubuntu's redis-server package binds to 127.0.0.1 by default
+# with no auth — fine here since nothing but this host talks to it.
+info "Configuring Redis..."
+as_root systemctl enable redis-server
+as_root systemctl start redis-server
+success "Redis ready"
+
 # Read existing password from .env.local when present so re-runs stay consistent.
 if [[ -f "$ENV_FILE" ]]; then
   DB_PASS="$(sed -n 's|^DATABASE_URL="postgresql://rproxy:\([^@]*\)@.*|\1|p' "$ENV_FILE")"
@@ -138,6 +148,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   JWT_SECRET="$(openssl rand -base64 64 | tr -d '\n')"
   JWT_REFRESH_SECRET="$(openssl rand -base64 64 | tr -d '\n')"
   CRON_SECRET="$(openssl rand -hex 32)"
+  GATEWAY_AUTH_SECRET="$(openssl rand -hex 32)"
   as_root tee "$ENV_FILE" > /dev/null <<ENVEOF
 DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}"
 JWT_SECRET="${JWT_SECRET}"
@@ -145,6 +156,9 @@ JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET}"
 CRON_SECRET="${CRON_SECRET}"
 NEXTAUTH_URL="http://localhost:81"
 NODE_ENV="production"
+REDIS_URL="redis://127.0.0.1:6379"
+GATEWAY_AUTH_SECRET="${GATEWAY_AUTH_SECRET}"
+GATEWAY_REDIS_FAIL_OPEN="true"
 ENVEOF
   as_root chmod 600 "$ENV_FILE"
   success ".env.local written"
@@ -153,6 +167,18 @@ else
   if ! grep -q '^CRON_SECRET=' "$ENV_FILE"; then
     echo "CRON_SECRET=\"$(openssl rand -hex 32)\"" | as_root tee -a "$ENV_FILE" > /dev/null
     success "CRON_SECRET appended"
+  fi
+  if ! grep -q '^REDIS_URL=' "$ENV_FILE"; then
+    echo 'REDIS_URL="redis://127.0.0.1:6379"' | as_root tee -a "$ENV_FILE" > /dev/null
+    success "REDIS_URL appended"
+  fi
+  if ! grep -q '^GATEWAY_AUTH_SECRET=' "$ENV_FILE"; then
+    echo "GATEWAY_AUTH_SECRET=\"$(openssl rand -hex 32)\"" | as_root tee -a "$ENV_FILE" > /dev/null
+    success "GATEWAY_AUTH_SECRET appended"
+  fi
+  if ! grep -q '^GATEWAY_REDIS_FAIL_OPEN=' "$ENV_FILE"; then
+    echo 'GATEWAY_REDIS_FAIL_OPEN="true"' | as_root tee -a "$ENV_FILE" > /dev/null
+    success "GATEWAY_REDIS_FAIL_OPEN appended"
   fi
 fi
 
@@ -285,6 +311,29 @@ HEALTH_CRON_JOB="*/2 * * * * /opt/rproxy/scripts/health-check.sh >> /var/log/rpr
 ( (as_user "$RPROXY_USER" crontab -l 2>/dev/null || true) | grep -v 'health-check.sh' || true; echo "$HEALTH_CRON_JOB" ) \
   | as_user "$RPROXY_USER" crontab -
 success "Health-check cron installed (every 2 minutes)"
+
+# ── 12c. Cloudflare DDNS watchdog cron (rproxy user) ─────────────────────────
+# No-ops quickly (a single public-IP lookup) unless DDNS is enabled in
+# Settings and the public IP actually changed, so a 5-minute interval is
+# cheap even when the feature is unused.
+info "Installing DDNS watchdog cron..."
+as_root chmod +x /opt/rproxy/scripts/ddns-check.sh
+DDNS_CRON_JOB="*/5 * * * * /opt/rproxy/scripts/ddns-check.sh >> /var/log/rproxy/ddns-check.log 2>&1"
+( (as_user "$RPROXY_USER" crontab -l 2>/dev/null || true) | grep -v 'ddns-check.sh' || true; echo "$DDNS_CRON_JOB" ) \
+  | as_user "$RPROXY_USER" crontab -
+success "DDNS watchdog cron installed (every 5 minutes)"
+
+# ── 12d. API Gateway usage-flush cron (rproxy user) ──────────────────────────
+# Drains Redis-side per-request usage/lastUsed counters into Postgres — see
+# usage-flush.service.ts for why this is a periodic flush rather than a
+# per-request write. A no-op (fast SCAN, nothing to flush) when the API
+# Gateway isn't in use.
+info "Installing API Gateway usage-flush cron..."
+as_root chmod +x /opt/rproxy/scripts/gateway-usage-flush.sh
+GATEWAY_FLUSH_CRON_JOB="*/5 * * * * /opt/rproxy/scripts/gateway-usage-flush.sh >> /var/log/rproxy/gateway-usage-flush.log 2>&1"
+( (as_user "$RPROXY_USER" crontab -l 2>/dev/null || true) | grep -v 'gateway-usage-flush.sh' || true; echo "$GATEWAY_FLUSH_CRON_JOB" ) \
+  | as_user "$RPROXY_USER" crontab -
+success "API Gateway usage-flush cron installed (every 5 minutes)"
 
 # ── 13. Done ──────────────────────────────────────────────────────────────────
 success ""

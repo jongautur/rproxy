@@ -183,3 +183,181 @@ export async function removeStreamConfig(filename: string): Promise<DeployResult
     return reloadNginx();
   });
 }
+
+// Same backup/deploy/test/reload/rollback transaction as deploySiteConfig,
+// but for a global conf.d snippet — no enable/disable split since a conf.d
+// file is either present (and always active, being included at the http
+// level for every site) or absent.
+//
+// `filename` is caller-supplied (validated by nginxHelper()/the helper
+// script's validate_conf_filename, same as sites-available filenames) —
+// this used to be hardcoded to the single real-ip snippet; generalized so
+// the API Gateway's shared limit_req_zone file (see zones.service.ts) can
+// reuse the same transaction instead of a parallel implementation.
+export async function deployConfDConfig(filename: string, config: string): Promise<DeployResult> {
+  return withDeployLock(async () => {
+    await ensureStagingDir();
+    const stagingPath = path.join(STAGING_DIR, filename);
+    await writeFile(stagingPath, config, "utf-8");
+
+    try {
+      const backupResult = await nginxHelper("confd-backup", filename);
+      if (backupResult.exitCode !== 0) {
+        return { success: false, output: `Failed to snapshot previous config: ${backupResult.stderr || backupResult.stdout}` };
+      }
+
+      const deployResult = await nginxHelper("confd-deploy", filename);
+      if (deployResult.exitCode !== 0) {
+        await nginxHelper("confd-restore", filename);
+        return { success: false, output: `Failed to deploy config: ${deployResult.stderr || deployResult.stdout}` };
+      }
+
+      const testResult = await testNginxConfig();
+      if (!testResult.success) {
+        await nginxHelper("confd-restore", filename);
+        return { success: false, output: `Config test failed:\n${testResult.output}` };
+      }
+
+      const reloadResult = await reloadNginx();
+      if (!reloadResult.success) {
+        await nginxHelper("confd-restore", filename);
+        return { success: false, output: `Reload failed, rolled back:\n${reloadResult.output}` };
+      }
+
+      return reloadResult;
+    } finally {
+      await unlink(stagingPath).catch(() => {});
+    }
+  });
+}
+
+export async function removeConfDConfig(filename: string): Promise<DeployResult> {
+  return withDeployLock(async () => {
+    const backupResult = await nginxHelper("confd-backup", filename);
+    if (backupResult.exitCode !== 0) {
+      return { success: false, output: `Failed to snapshot previous config: ${backupResult.stderr || backupResult.stdout}` };
+    }
+
+    const removeResult = await nginxHelper("confd-remove", filename);
+    if (removeResult.exitCode !== 0) {
+      return { success: false, output: `Failed to remove config: ${removeResult.stderr || removeResult.stdout}` };
+    }
+
+    const testResult = await testNginxConfig();
+    if (!testResult.success) {
+      await nginxHelper("confd-restore", filename);
+      return { success: false, output: `Config test failed:\n${testResult.output}` };
+    }
+
+    const reloadResult = await reloadNginx();
+    if (!reloadResult.success) {
+      await nginxHelper("confd-restore", filename);
+      return { success: false, output: `Reload failed, rolled back:\n${reloadResult.output}` };
+    }
+
+    return reloadResult;
+  });
+}
+
+// ── Atomic multi-file deploy ────────────────────────────────────────────────
+//
+// The API Gateway's shared limit_req_zone conf.d file and a per-Api site
+// file must change together whenever a route's rate limit is added,
+// changed, or removed — the site file's `limit_req zone=<name>` references
+// a zone name the zones file defines. Deploying them as two SEPARATE
+// deploySiteConfig()/deployConfDConfig() calls has no safe ordering: zones
+// added first, then a stale site referencing an old zone that got removed
+// still momentarily exists between the two reloads either way, and either
+// ordering means the "other" file's version is briefly inconsistent with
+// what's live between the two independent `nginx -t`/reload cycles. This
+// runs ONE `nginx -t` and ONE reload across the whole batch, staged and
+// backed up first, so it's all-or-nothing: either every file in the batch
+// is live and consistent, or none of the changes took effect at all.
+export interface BatchEntry {
+  kind: "site" | "confd";
+  filename: string;
+  config: string;
+  enabled?: boolean; // site only — ignored for confd entries
+  remove?: boolean;  // deploy nothing; back up + remove this file instead
+}
+
+export async function deployConfigBatch(entries: BatchEntry[]): Promise<DeployResult> {
+  return withDeployLock(async () => {
+    await ensureStagingDir();
+    const stagingPaths: string[] = [];
+    const backedUp: BatchEntry[] = [];
+
+    async function restoreAll(): Promise<void> {
+      // Reverse order is not load-bearing here (each entry's restore is
+      // independent — same as every other restore-on-failure path in this
+      // file), just tidy.
+      for (const entry of [...backedUp].reverse()) {
+        if (entry.kind === "site") {
+          await nginxHelper("restore", entry.filename);
+        } else {
+          await nginxHelper("confd-restore", entry.filename);
+        }
+      }
+    }
+
+    try {
+      for (const entry of entries) {
+        if (!entry.remove) {
+          const stagingPath = path.join(STAGING_DIR, entry.filename);
+          await writeFile(stagingPath, entry.config, "utf-8");
+          stagingPaths.push(stagingPath);
+        }
+
+        const backupResult = entry.kind === "site"
+          ? await nginxHelper("backup", entry.filename)
+          : await nginxHelper("confd-backup", entry.filename);
+        if (backupResult.exitCode !== 0) {
+          await restoreAll();
+          return { success: false, output: `Failed to snapshot ${entry.filename}: ${backupResult.stderr || backupResult.stdout}` };
+        }
+        backedUp.push(entry);
+
+        if (entry.remove) {
+          const removeResult = entry.kind === "site"
+            ? await nginxHelper("remove", entry.filename)
+            : await nginxHelper("confd-remove", entry.filename);
+          if (removeResult.exitCode !== 0) {
+            await restoreAll();
+            return { success: false, output: `Failed to remove ${entry.filename}: ${removeResult.stderr || removeResult.stdout}` };
+          }
+          continue;
+        }
+
+        const deployResult = entry.kind === "site"
+          ? await nginxHelper("deploy", entry.filename)
+          : await nginxHelper("confd-deploy", entry.filename);
+        if (deployResult.exitCode !== 0) {
+          await restoreAll();
+          return { success: false, output: `Failed to deploy ${entry.filename}: ${deployResult.stderr || deployResult.stdout}` };
+        }
+
+        if (entry.kind === "site") {
+          await nginxHelper(entry.enabled ? "enable" : "disable", entry.filename);
+        }
+      }
+
+      const testResult = await testNginxConfig();
+      if (!testResult.success) {
+        await restoreAll();
+        return { success: false, output: `Config test failed:\n${testResult.output}` };
+      }
+
+      const reloadResult = await reloadNginx();
+      if (!reloadResult.success) {
+        await restoreAll();
+        return { success: false, output: `Reload failed, rolled back:\n${reloadResult.output}` };
+      }
+
+      return reloadResult;
+    } finally {
+      for (const p of stagingPaths) {
+        await unlink(p).catch(() => {});
+      }
+    }
+  });
+}
