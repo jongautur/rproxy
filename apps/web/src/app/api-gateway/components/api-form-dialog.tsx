@@ -230,7 +230,7 @@ export function ApiFormDialog({ open, onOpenChange, api, onSaved }: Props) {
                     type="number"
                     value={form.maxRequestsPerSecond}
                     onChange={(e) => set("maxRequestsPerSecond", e.target.value)}
-                    placeholder="Optional — enforced from a later phase"
+                    placeholder="Optional — falls back for routes with no limit of their own"
                   />
                 </div>
                 <div className="space-y-1">
@@ -246,12 +246,12 @@ export function ApiFormDialog({ open, onOpenChange, api, onSaved }: Props) {
 
               <div className="flex items-center gap-2">
                 <Switch checked={form.corsEnabled} onCheckedChange={(v) => set("corsEnabled", v)} />
-                <Label>CORS enabled (permissive — enforced from a later phase)</Label>
+                <Label>CORS enabled (permissive — allows any origin)</Label>
               </div>
             </TabsContent>
 
             <TabsContent value="routes" className="mt-4">
-              <ApiRoutesEditor apiId={api?.id ?? null} />
+              <ApiRoutesEditor apiId={api?.id ?? null} apiDomain={form.domain} apiBasePath={form.basePath} />
             </TabsContent>
           </Tabs>
 

@@ -60,16 +60,32 @@ function draftToBody(d: RouteDraft) {
   };
 }
 
-function RouteFields({ draft, onChange }: { draft: RouteDraft; onChange: (d: RouteDraft) => void }) {
+// The externally-callable URL for this route — Api.basePath and route.path
+// concatenate directly into one location block (see generateApiGatewayConfig
+// in api-gateway-config.ts), so showing that assembled result here is the
+// difference between guessing why a route "isn't matching" and seeing it.
+function fullRoutePreview(apiDomain: string, apiBasePath: string, routePath: string): string {
+  const base = apiBasePath === "/" ? "" : apiBasePath;
+  const path = routePath || "/";
+  const joined = (base + (path === "/" ? "" : path)) || "/";
+  return `${apiDomain || "<domain>"}${joined}`;
+}
+
+function RouteFields({
+  draft, onChange, apiDomain, apiBasePath,
+}: { draft: RouteDraft; onChange: (d: RouteDraft) => void; apiDomain: string; apiBasePath: string }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div className="space-y-1">
+      <div className="space-y-1 sm:col-span-2">
         <Label className="text-xs">Path</Label>
         <Input
           value={draft.path}
           onChange={(e) => onChange({ ...draft, path: e.target.value })}
           placeholder="/v1/geocode/search"
         />
+        <p className="text-xs text-muted-foreground font-mono truncate">
+          → {fullRoutePreview(apiDomain, apiBasePath, draft.path)}
+        </p>
       </div>
       <div className="space-y-1 sm:col-span-2">
         <Label className="text-xs">Methods (none selected = any method)</Label>
@@ -128,7 +144,7 @@ function RouteFields({ draft, onChange }: { draft: RouteDraft; onChange: (d: Rou
       </div>
       <div className="flex items-center gap-2 pt-1">
         <Switch checked={draft.authRequired} onCheckedChange={(v) => onChange({ ...draft, authRequired: v })} />
-        <Label className="text-xs">Require API key (enforced from a later phase)</Label>
+        <Label className="text-xs">Require API key</Label>
       </div>
       <div className="flex items-center gap-2 pt-1">
         <Switch checked={draft.enabled} onCheckedChange={(v) => onChange({ ...draft, enabled: v })} />
@@ -138,7 +154,7 @@ function RouteFields({ draft, onChange }: { draft: RouteDraft; onChange: (d: Rou
   );
 }
 
-export function ApiRoutesEditor({ apiId }: { apiId: string | null }) {
+export function ApiRoutesEditor({ apiId, apiDomain, apiBasePath }: { apiId: string | null; apiDomain: string; apiBasePath: string }) {
   const { toast } = useToast();
   const [routes, setRoutes] = useState<ApiRoute[]>([]);
   const [loading, setLoading] = useState(false);
@@ -257,7 +273,7 @@ export function ApiRoutesEditor({ apiId }: { apiId: string | null }) {
         const draft = drafts[r.id] ?? routeToDraft(r);
         return (
           <div key={r.id} className="rounded-lg border border-border p-3 space-y-3">
-            <RouteFields draft={draft} onChange={(d) => setDrafts((prev) => ({ ...prev, [r.id]: d }))} />
+            <RouteFields draft={draft} onChange={(d) => setDrafts((prev) => ({ ...prev, [r.id]: d }))} apiDomain={apiDomain} apiBasePath={apiBasePath} />
             <div className="flex items-center justify-end gap-2">
               <Button
                 type="button"
@@ -291,7 +307,7 @@ export function ApiRoutesEditor({ apiId }: { apiId: string | null }) {
 
       {newDraft ? (
         <div className="rounded-lg border border-dashed border-border p-3 space-y-3">
-          <RouteFields draft={newDraft} onChange={setNewDraft} />
+          <RouteFields draft={newDraft} onChange={setNewDraft} apiDomain={apiDomain} apiBasePath={apiBasePath} />
           <div className="flex items-center justify-end gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => setNewDraft(null)}>
               Cancel

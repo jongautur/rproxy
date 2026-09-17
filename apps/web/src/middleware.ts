@@ -13,12 +13,21 @@ const MFA_PATH = "/mfa";
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // Bearer-token / shared-secret endpoints, not cookie-authenticated — CSRF
 // doesn't apply since there's no ambient browser credential to forge.
+// Prefixes must end in "/" and are for whole sub-trees of routes (e.g. every
+// /api/cron/* endpoint); a single route gets an exact entry in
+// CSRF_EXEMPT_EXACT instead — see the PUBLIC_PATHS comment above for why
+// startsWith() on a bare route name is the bug this split avoids.
+const CSRF_EXEMPT_PREFIXES = ["/api/cron/"];
 // /api/gateway/auth-check is nginx's auth_request target (internal-only,
 // authenticated by GATEWAY_AUTH_SECRET + the presented API key, checked in
 // the route handler itself) — without this exemption every auth_request
 // subrequest would be rejected here with 401 before it ever reaches that
 // check, since it carries no session cookie.
-const CSRF_EXEMPT_PREFIXES = ["/api/cron/", "/api/gateway/auth-check"];
+const CSRF_EXEMPT_EXACT = new Set(["/api/gateway/auth-check"]);
+
+function isCsrfExemptPath(pathname: string): boolean {
+  return CSRF_EXEMPT_EXACT.has(pathname) || CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
+}
 // Generous for JSON bodies this app actually sends (cert/chain PEMs, config
 // text fields are all individually capped far below this) — this exists to
 // stop someone streaming an unbounded body at an endpoint, not to constrain
@@ -97,8 +106,7 @@ export async function middleware(req: NextRequest) {
     if (contentLength && Number(contentLength) > MAX_BODY_BYTES) {
       return NextResponse.json({ success: false, error: "Request body too large" }, { status: 413 });
     }
-    const isCsrfExempt = CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
-    if (!isCsrfExempt && !hasValidOrigin(req)) {
+    if (!isCsrfExemptPath(pathname) && !hasValidOrigin(req)) {
       return NextResponse.json({ success: false, error: "Invalid or missing origin" }, { status: 403 });
     }
   }
@@ -117,7 +125,7 @@ export async function middleware(req: NextRequest) {
     // this, every cron-triggered request (cert renewal, log cleanup/parsing,
     // health-check sweep) is rejected with 401 before it ever reaches the
     // route handler's own CRON_SECRET check.
-    if (CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p))) {
+    if (isCsrfExemptPath(pathname)) {
       return NextResponse.next();
     }
     let apiPayload: JwtPayload | null = null;

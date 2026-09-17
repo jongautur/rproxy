@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Loader2, Trash2, Save, ShieldCheck } from "lucide-react";
+import { Plus, Loader2, Trash2, Save, ShieldCheck, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import type { ApiAccessWithApi } from "@/types/api-gateway";
+import { RouteAccessEditor } from "./route-access-editor";
 
 interface ApiOption { id: string; name: string; domain: string; }
 
@@ -70,6 +71,7 @@ export function CustomerAccessEditor({ customerId }: { customerId: string | null
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [newApiId, setNewApiId] = useState("");
   const [creating, setCreating] = useState(false);
+  const [expandedRoutesGrantId, setExpandedRoutesGrantId] = useState<string | null>(null);
 
   const fetchGrants = useCallback(async () => {
     if (!customerId) return;
@@ -183,12 +185,30 @@ export function CustomerAccessEditor({ customerId }: { customerId: string | null
                   </Button>
                 </div>
                 <DraftFields draft={draft} onChange={(d) => setDrafts((prev) => ({ ...prev, [g.id]: d }))} />
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between">
+                  <Button
+                    type="button" variant="ghost" size="sm" className="gap-1 text-xs"
+                    onClick={() => setExpandedRoutesGrantId(expandedRoutesGrantId === g.id ? null : g.id)}
+                  >
+                    Route overrides
+                    {expandedRoutesGrantId === g.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </Button>
                   <Button type="button" size="sm" className="gap-1" onClick={() => handleSave(g.id)} disabled={savingId === g.id}>
                     {savingId === g.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                     Save
                   </Button>
                 </div>
+                {expandedRoutesGrantId === g.id && customerId && (
+                  <div className="pt-2 border-t border-border/50 mt-2">
+                    <RouteAccessEditor
+                      customerId={customerId}
+                      apiId={g.apiId}
+                      apiRateLimitOverride={g.rateLimitOverride ?? undefined}
+                      apiDailyQuota={g.dailyQuota ?? undefined}
+                      apiMonthlyQuota={g.monthlyQuota ?? undefined}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}

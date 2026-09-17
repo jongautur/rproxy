@@ -7,6 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
 import type { ApiKeyPublic, ApiAccessWithApi, ScopableApi, KeyScope } from "@/types/api-gateway";
 
@@ -227,6 +232,7 @@ export function CustomerKeysEditor({ customerId }: { customerId: string | null }
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [expandedScopeKeyId, setExpandedScopeKeyId] = useState<string | null>(null);
   const [scopableApis, setScopableApis] = useState<ScopableApi[]>([]);
+  const [revokeTarget, setRevokeTarget] = useState<ApiKeyPublic | null>(null);
 
   const fetchKeys = useCallback(async () => {
     if (!customerId) return;
@@ -314,7 +320,6 @@ export function CustomerKeysEditor({ customerId }: { customerId: string | null }
 
   async function handleRevoke(key: ApiKeyPublic) {
     if (!customerId) return;
-    if (!confirm(`Permanently revoke ${key.keyPrefix}? This cannot be undone.`)) return;
     setRevokingId(key.id);
     try {
       const res = await fetch(`/api/gateway/customers/${customerId}/keys/${key.id}`, { method: "DELETE" });
@@ -323,7 +328,7 @@ export function CustomerKeysEditor({ customerId }: { customerId: string | null }
       else toast({ variant: "destructive", title: "Revoke failed", description: json.error });
     } catch {
       toast({ variant: "destructive", title: "Revoke failed" });
-    } finally { setRevokingId(null); }
+    } finally { setRevokingId(null); setRevokeTarget(null); }
   }
 
   async function copyToClipboard(text: string) {
@@ -397,7 +402,7 @@ export function CustomerKeysEditor({ customerId }: { customerId: string | null }
                       <Button
                         type="button" variant="ghost" size="icon-sm"
                         className="text-destructive hover:bg-destructive/10"
-                        onClick={() => handleRevoke(key)}
+                        onClick={() => setRevokeTarget(key)}
                         disabled={revokingId === key.id}
                         title="Revoke permanently"
                       >
@@ -422,6 +427,27 @@ export function CustomerKeysEditor({ customerId }: { customerId: string | null }
           Generate New Key
         </Button>
       </div>
+
+      <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke API key?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently revokes <span className="font-mono font-semibold text-foreground">{revokeTarget?.keyPrefix}</span>
+              {revokeTarget?.label ? ` (${revokeTarget.label})` : ""}. Any caller still using it will be rejected immediately. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => revokeTarget && handleRevoke(revokeTarget)}
+            >
+              Revoke
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

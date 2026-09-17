@@ -9,6 +9,16 @@ import { redis } from "@/lib/redis";
 
 export type DenyReason = "forbidden" | "rate_limited" | "quota_exceeded";
 
+// ApiUsage.customerId is a plain string column, not a real FK to Customer
+// (see the schema comment on ApiUsage) — this sentinel is safe to use for
+// the two denial paths below that happen before a customer is even known
+// (no key presented, or a key that doesn't match any row). Without it,
+// those requests — arguably the most common kind of denial in real traffic
+// (bots probing, typo'd keys) — were silently absent from every usage
+// count, not just under-counted. The Analytics route filters this id back
+// out of the per-customer breakdown and surfaces it in totals/per-API only.
+export const UNAUTHENTICATED_CUSTOMER_ID = "unauthenticated";
+
 export type AccessCheckResult =
   | { ok: true; customerId: string }
   | { ok: false; status: 401 | 403; denyReason?: DenyReason };
@@ -109,25 +119,39 @@ export async function checkRateAndQuota(customerId: string, routeId: string, lim
   const ymd = now.toISOString().slice(0, 10).replace(/-/g, "");
   const ym = now.toISOString().slice(0, 7).replace(/-/g, "");
 
-  const rateKey = limits.rateLimit ? `rl:${customerId}:${routeId}:${Math.floor(Date.now() / 1000)}` : undefined;
+  // Weighted sliding window (same technique as Cloudflare/Stripe's rate
+  // limiters): a plain fixed 1s window lets a burst straddling the window
+  // boundary (e.g. limit-worth of requests at t=0.999s, another limit-worth
+  // at t=1.001s) through at ~2x the configured rate, since each window's
+  // counter independently stays under the limit. Blending the previous
+  // window's count in, weighted by how far into the current window we are,
+  // closes that gap with one extra pipelined GET — no extra round trip.
+  const nowMs = Date.now();
+  const currWindow = Math.floor(nowMs / 1000);
+  const elapsedFraction = (nowMs - currWindow * 1000) / 1000;
+  const rateKeyCurr = limits.rateLimit ? `rl:${customerId}:${routeId}:${currWindow}` : undefined;
+  const rateKeyPrev = limits.rateLimit ? `rl:${customerId}:${routeId}:${currWindow - 1}` : undefined;
   const dayKey = limits.dailyQuota ? `q:day:${customerId}:${limits.dailyScopeId}:${ymd}` : undefined;
   const monthKey = limits.monthlyQuota ? `q:month:${customerId}:${limits.monthlyScopeId}:${ym}` : undefined;
 
   try {
     const pipeline = redis.multi();
-    if (rateKey) { pipeline.incr(rateKey); pipeline.expire(rateKey, 2); }
+    if (rateKeyCurr) { pipeline.incr(rateKeyCurr); pipeline.expire(rateKeyCurr, 2); pipeline.get(rateKeyPrev!); }
     if (dayKey) { pipeline.incr(dayKey); pipeline.expireat(dayKey, endOfDayUnix(now)); }
     if (monthKey) { pipeline.incr(monthKey); pipeline.expireat(monthKey, endOfMonthUnix(now)); }
 
     const results = await pipeline.exec();
     if (!results) throw new Error("Redis pipeline returned null (connection not ready)");
 
-    // Each key contributes two results (INCR, EXPIRE) in the order pushed above.
+    // Each key contributes its own number of results (INCR[, EXPIRE, GET]) in
+    // the order pushed above.
     let i = 0;
-    if (rateKey) {
-      const count = results[i]![1] as number;
-      i += 2;
-      if (count > limits.rateLimit!) return { ok: false, reason: "rate_limited" };
+    if (rateKeyCurr) {
+      const currCount = results[i]![1] as number;
+      const prevCount = Number(results[i + 2]![1] as string | null) || 0;
+      i += 3;
+      const weightedCount = prevCount * (1 - elapsedFraction) + currCount;
+      if (weightedCount > limits.rateLimit!) return { ok: false, reason: "rate_limited" };
     }
     if (dayKey) {
       const count = results[i]![1] as number;
@@ -154,12 +178,12 @@ export async function checkRateAndQuota(customerId: string, routeId: string, lim
 // persisted ApiUsage rollup. Fire-and-forget: never awaited by the caller,
 // so a Redis hiccup here can't add latency to — or fail — the auth decision
 // that's already been made.
-function recordUsage(customerId: string, apiId: string, routeId: string, apiKeyId: string, outcome: "allowed" | "denied" | "throttled"): void {
+function recordUsage(customerId: string, apiId: string, routeId: string, apiKeyId: string | null, outcome: "allowed" | "denied" | "throttled"): void {
   const hourBucket = new Date().toISOString().slice(0, 13).replace(/[-T]/g, "");
   const usageKey = `usage:${customerId}:${apiId}:${routeId}:${hourBucket}`;
   const pipeline = redis.multi();
   pipeline.hincrby(usageKey, outcome, 1);
-  if (outcome === "allowed") {
+  if (outcome === "allowed" && apiKeyId) {
     pipeline.set(`lastused:${apiKeyId}`, new Date().toISOString());
   }
   pipeline.exec().catch((err) => {
@@ -173,7 +197,10 @@ export async function checkAccess(
   routeId: string,
   method: string
 ): Promise<AccessCheckResult> {
-  if (!presentedKey) return { ok: false, status: 401 };
+  if (!presentedKey) {
+    recordUsage(UNAUTHENTICATED_CUSTOMER_ID, apiId, routeId, null, "denied");
+    return { ok: false, status: 401 };
+  }
 
   const keyHash = hashApiKey(presentedKey);
   const apiKey = await prisma.apiKey.findUnique({
@@ -186,7 +213,10 @@ export async function checkAccess(
   // is a DB index equality check, not a secret comparison in application
   // code, so there's no timing-attack surface to worry about here the way
   // there would be for a manual string compare.
-  if (!apiKey) return { ok: false, status: 401 };
+  if (!apiKey) {
+    recordUsage(UNAUTHENTICATED_CUSTOMER_ID, apiId, routeId, null, "denied");
+    return { ok: false, status: 401 };
+  }
 
   if (!apiKey.enabled || apiKey.revokedAt || isExpired(apiKey.expiresAt)) {
     recordUsage(apiKey.customerId, apiId, routeId, apiKey.id, "denied");

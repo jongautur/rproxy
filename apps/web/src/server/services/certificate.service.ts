@@ -132,6 +132,14 @@ export async function createCertificate(
         if (integration?.proxyAfterSsl) {
           await upsertARecord(dns.token, dns.zone.id, data.domain, dns.ip, { proxied: true });
           if (dns.result) dns.result.proxied = true;
+          // Keep ProxyHost.cloudflareProxied (the source for the "DNS only"
+          // vs proxied badge in the UI) in sync with the record we just
+          // flipped — only touches hosts whose DNS Cloudflare actually
+          // manages, same guard as setCloudflareProxied/syncCloudflareRecords.
+          await prisma.proxyHost.updateMany({
+            where: { domain: data.domain, cloudflareRecordId: { not: null } },
+            data: { cloudflareProxied: true },
+          });
         }
       } catch (e) {
         console.error(`Cloudflare proxy-after-ssl flip failed for ${data.domain}:`, e instanceof Error ? e.message : String(e));
