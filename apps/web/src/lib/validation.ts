@@ -151,6 +151,12 @@ export const apiSchema = z.object({
 
 export const apiRouteMethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
+// Bare HTTP header token chars only (letters/digits/hyphen) — this name is
+// interpolated unquoted into `proxy_set_header <name> "...";`, so it must
+// never be able to contain whitespace, quotes, or a semicolon regardless of
+// what sanitizeNginxValue/escapeNginxString would also strip downstream.
+const upstreamAuthHeaderNameSchema = z.string().max(64).regex(/^[A-Za-z0-9-]+$/, "Header name must contain only letters, digits, and hyphens");
+
 export const apiRouteSchema = z.object({
   path: apiPathSchema.refine((v) => v !== "", "Route path is required"),
   // Empty = any method (was a single value defaulting to the sentinel
@@ -163,6 +169,14 @@ export const apiRouteSchema = z.object({
   authRequired: z.boolean().default(true),
   maxRequestsPerSecond: z.number().int().min(1).max(100_000).optional(),
   enabled: z.boolean().default(true),
+  // Credential rproxy presents to the BACKEND (separate from authRequired,
+  // which gates the caller) — see the ApiRoute schema comment. Value is
+  // plaintext here; route.service.ts encrypts it before it ever reaches
+  // Postgres and never returns it. An empty/omitted upstreamAuthValue on
+  // update means "keep the existing secret," not "clear it."
+  upstreamAuthType: z.enum(["NONE", "BEARER", "API_KEY"]).default("NONE"),
+  upstreamAuthHeaderName: upstreamAuthHeaderNameSchema.optional(),
+  upstreamAuthValue: z.string().max(2048).optional(),
 });
 
 export const customerSchema = z.object({

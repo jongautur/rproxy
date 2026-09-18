@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { generateApiGatewayConfig, apiConfigFilename } from "../api-gateway-config";
-import type { Api, ApiRoute } from "@prisma/client";
+import { generateApiGatewayConfig, apiConfigFilename, type ApiRouteWithAuth } from "../api-gateway-config";
+import type { Api } from "@prisma/client";
 
 // Same pattern as jwt.test.ts — set required env vars in beforeAll so this
 // file's tests don't depend on `pnpm test` being invoked with .env.local
@@ -33,7 +33,7 @@ function makeApi(overrides: Partial<Api> = {}): Api {
   } as Api;
 }
 
-function makeRoute(overrides: Partial<ApiRoute> = {}): ApiRoute {
+function makeRoute(overrides: Partial<ApiRouteWithAuth> = {}): ApiRouteWithAuth {
   return {
     id: "r1",
     apiId: "a1",
@@ -46,10 +46,14 @@ function makeRoute(overrides: Partial<ApiRoute> = {}): ApiRoute {
     authRequired: true,
     maxRequestsPerSecond: null,
     enabled: true,
+    upstreamAuthType: "NONE",
+    upstreamAuthHeaderName: null,
+    upstreamAuthValueEncrypted: null,
+    upstreamAuthValue: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
-  } as ApiRoute;
+  } as ApiRouteWithAuth;
 }
 
 describe("apiConfigFilename", () => {

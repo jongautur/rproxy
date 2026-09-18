@@ -6,7 +6,8 @@ import path from "path";
 import { generateNginxConfig } from "../nginx-config";
 import { generateRedirectConfig } from "../redirect-config";
 import { generateApiGatewayConfig } from "../api-gateway-config";
-import type { ProxyHost, RedirectHost, Api, ApiRoute } from "@prisma/client";
+import type { ProxyHost, RedirectHost, Api } from "@prisma/client";
+import type { ApiRouteWithAuth } from "../api-gateway-config";
 
 // This is the "does the generator actually produce syntactically valid
 // nginx config" check called for in the repo review — it shells out to a
@@ -184,6 +185,10 @@ describe.skipIf(!nginxAvailable)("nginx config integration", () => {
         authRequired: true,
         maxRequestsPerSecond: null,
         enabled: true,
+        upstreamAuthType: "NONE",
+        upstreamAuthHeaderName: null,
+        upstreamAuthValueEncrypted: null,
+        upstreamAuthValue: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -199,10 +204,14 @@ describe.skipIf(!nginxAvailable)("nginx config integration", () => {
         authRequired: true,
         maxRequestsPerSecond: null,
         enabled: true,
+        upstreamAuthType: "NONE",
+        upstreamAuthHeaderName: null,
+        upstreamAuthValueEncrypted: null,
+        upstreamAuthValue: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ] as ApiRoute[];
+    ] as ApiRouteWithAuth[];
 
     const config = generateApiGatewayConfig({ api, routes, certificate: null });
     const result = runNginxT(config);

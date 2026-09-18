@@ -1,5 +1,6 @@
 import path from "path";
 import { prisma } from "@/lib/prisma";
+import { decryptJson } from "@/lib/encrypt";
 import { generateApiGatewayConfig, apiConfigFilename } from "@/server/config-generator/api-gateway-config";
 import { deployConfigBatch, setSiteEnabled, type DeployResult } from "@/server/services/nginx-deploy.service";
 import { buildZonesBatchEntry } from "@/server/services/api-gateway/zones.service";
@@ -24,7 +25,24 @@ async function deployConfig(api: Api): Promise<DeployResult> {
     buildZonesBatchEntry(),
   ]);
 
-  const config = generateApiGatewayConfig({ api, routes, certificate });
+  // Decrypted here (the service/I-O layer), not inside the generator — keeps
+  // the generator a pure string-rendering function, consistent with the
+  // "config-generator/ has no I/O" convention (see CLAUDE.md). Failure to
+  // decrypt (e.g. a JWT_SECRET rotation invalidating old ciphertext) fails
+  // this specific route's upstream-auth header rather than the whole deploy.
+  const routesWithAuth = routes.map((route) => {
+    let upstreamAuthValue: string | null = null;
+    if (route.upstreamAuthValueEncrypted) {
+      try {
+        upstreamAuthValue = (decryptJson(route.upstreamAuthValueEncrypted) as { value: string }).value;
+      } catch (e) {
+        console.error(`[api-gateway] Failed to decrypt upstream auth for route ${route.id}:`, e instanceof Error ? e.message : e);
+      }
+    }
+    return { ...route, upstreamAuthValue };
+  });
+
+  const config = generateApiGatewayConfig({ api, routes: routesWithAuth, certificate });
   const filename = apiConfigFilename(api.domain);
 
   const deploy = await deployConfigBatch([

@@ -5,7 +5,8 @@ import { tmpdir } from "os";
 import path from "path";
 import http from "http";
 import { generateApiGatewayConfig } from "../api-gateway-config";
-import type { Api, ApiRoute } from "@prisma/client";
+import type { Api } from "@prisma/client";
+import type { ApiRouteWithAuth } from "../api-gateway-config";
 
 // Correction 4 from the API Gateway plan: nginx's auth_request module only
 // understands 2xx/401/403 from the subrequest — a bare 429 would NOT
@@ -132,10 +133,14 @@ describe.skipIf(!nginxAvailable)("API Gateway auth_request — real nginx, end-t
         authRequired: true,
         maxRequestsPerSecond: null,
         enabled: true,
+        upstreamAuthType: "NONE",
+        upstreamAuthHeaderName: null,
+        upstreamAuthValueEncrypted: null,
+        upstreamAuthValue: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ] as ApiRoute[];
+    ] as ApiRouteWithAuth[];
 
     let config = generateApiGatewayConfig({ api, routes, certificate: null });
     // Redirect the internal auth_request target at our stub instead of the

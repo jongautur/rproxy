@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireSession, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { apiRouteSchema } from "@/lib/validation";
-import { createRoute } from "@/server/services/api-gateway/route.service";
+import { createRoute, listRoutes } from "@/server/services/api-gateway/route.service";
 import { ok, created, badRequest, notFound, fromError } from "@/lib/api-response";
 
 interface RouteParams {
@@ -17,10 +17,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     const api = await prisma.api.findUnique({ where: { id: apiId } });
     if (!api) return notFound("API not found");
 
-    const routes = await prisma.apiRoute.findMany({
-      where: { apiId },
-      orderBy: { createdAt: "asc" },
-    });
+    const routes = await listRoutes(apiId);
     return ok(routes);
   } catch (e) {
     return fromError(e);
@@ -50,8 +47,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     if (existing) return badRequest("A route with this path already exists on this API");
 
-    const { route, deploy } = await createRoute(apiId, parsed.data, session.id);
-    return created({ route, nginxTest: deploy });
+    let result;
+    try {
+      result = await createRoute(apiId, parsed.data, session.id);
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("upstream auth value is required")) return badRequest(e.message);
+      throw e;
+    }
+    return created({ route: result.route, nginxTest: result.deploy });
   } catch (e) {
     return fromError(e);
   }

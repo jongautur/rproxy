@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireSession, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { apiRouteSchema } from "@/lib/validation";
-import { updateRoute, deleteRoute } from "@/server/services/api-gateway/route.service";
+import { updateRoute, deleteRoute, getRoute } from "@/server/services/api-gateway/route.service";
 import { ok, badRequest, notFound, fromError } from "@/lib/api-response";
 
 interface RouteParams {
@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     await requireSession();
     const { id: apiId, routeId } = await params;
 
-    const route = await prisma.apiRoute.findUnique({ where: { id: routeId } });
+    const route = await getRoute(routeId);
     if (!route || route.apiId !== apiId) return notFound("Route not found");
 
     return ok(route);

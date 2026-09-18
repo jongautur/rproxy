@@ -376,6 +376,17 @@ enum ApiRouteMethod {
   // ApiKeyRouteScope.methods array instead of a sixth enum member.
 }
 
+// Credential rproxy itself injects when calling the backend — independent of
+// (and unrelated to) authRequired, which gates the CALLER (does this request
+// need a valid customer API key). A route can require both: a customer key
+// to reach rproxy, and rproxy in turn presents its own Bearer/API-key
+// credential to a backend that's separately access-controlled.
+enum ApiRouteAuthType {
+  NONE
+  BEARER
+  API_KEY
+}
+
 model Api {
   id          String  @id @default(cuid())
   name        String  @unique
@@ -429,6 +440,16 @@ model ApiRoute {
   authRequired         Boolean @default(true) @map("auth_required")
   maxRequestsPerSecond Int?    @map("max_requests_per_second") // overrides Api's fallback when set
   enabled              Boolean @default(true)
+
+  // Upstream credential rproxy presents to the BACKEND — e.g. the backend
+  // itself requires "Authorization: Bearer <token>" or an "X-Api-Key"-style
+  // header, independent of authRequired above. Encrypted at rest the same
+  // way as Cloudflare tokens / DNS provider credentials (see lib/encrypt.ts);
+  // decrypted only at config-generation time (api.service.ts), never
+  // returned to the client after it's set.
+  upstreamAuthType          ApiRouteAuthType @default(NONE) @map("upstream_auth_type")
+  upstreamAuthHeaderName    String?          @map("upstream_auth_header_name") // API_KEY only; e.g. "X-Api-Key"
+  upstreamAuthValueEncrypted String?         @map("upstream_auth_value_encrypted")
 
   api         Api                @relation(fields: [apiId], references: [id], onDelete: Cascade)
   routeAccess ApiRouteAccess[]

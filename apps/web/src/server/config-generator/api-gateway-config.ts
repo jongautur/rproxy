@@ -1,4 +1,10 @@
 import type { Api, ApiRoute, Certificate } from "@prisma/client";
+
+// Route plus the plaintext upstream-auth secret, decrypted by the caller
+// (api.service.ts — the I/O boundary) so this file stays a pure renderer,
+// same convention as everywhere else in config-generator/. null when
+// upstreamAuthType is NONE, or decryption failed for this route.
+export type ApiRouteWithAuth = ApiRoute & { upstreamAuthValue: string | null };
 import { isValidDomain, isValidPort, sanitizeNginxValue, getAppPort } from "@/lib/validation";
 import { domainToFilename } from "@/server/config-generator/nginx-config";
 import { zoneNameForRoute, DEFAULT_BURST } from "@/server/config-generator/api-gateway-zones-config";
@@ -86,7 +92,7 @@ location @gw_403 {
 
 interface GeneratorOptions {
   api: Api;
-  routes: ApiRoute[];
+  routes: ApiRouteWithAuth[];
   certificate: Certificate | null;
 }
 
@@ -100,10 +106,17 @@ export function generateApiGatewayConfig(opts: GeneratorOptions): string {
   if (!isValidPort(api.listenPort)) throw new Error(`Invalid listen port: ${api.listenPort}`);
   if (!isValidPort(api.httpsPort)) throw new Error(`Invalid https port: ${api.httpsPort}`);
   validatePath(api.basePath, "base path");
+  const HEADER_NAME_REGEX = /^[A-Za-z0-9-]+$/;
   for (const route of routes) {
     validatePath(route.path, "route path");
     if (route.upstreamPath) validatePath(route.upstreamPath, "upstream path");
     validateUpstreamTarget(route.upstreamHost, route.upstreamPort);
+    // Defense in depth beyond the zod boundary (upstreamAuthHeaderNameSchema
+    // in validation.ts) — this name is interpolated unquoted, right before
+    // the quoted value, into `proxy_set_header <name> "...";`.
+    if (route.upstreamAuthType === "API_KEY" && route.upstreamAuthHeaderName && !HEADER_NAME_REGEX.test(route.upstreamAuthHeaderName)) {
+      throw new Error(`Invalid upstream auth header name: ${route.upstreamAuthHeaderName}`);
+    }
   }
 
   // Fail at generation time, not silently deploy an internal endpoint an
@@ -250,6 +263,17 @@ export function generateApiGatewayConfig(opts: GeneratorOptions): string {
       lines.push(`        error_page 401 = @gw_401;`);
       lines.push(`        error_page 403 = @gw_403;`);
       lines.push(`        proxy_set_header X-Gateway-Customer-Id $gw_customer_id;`);
+    }
+
+    // Credential rproxy itself presents to the BACKEND — independent of
+    // authRequired above (that gates the caller). Only emitted when a
+    // secret actually decrypted successfully (see api.service.ts); a
+    // decrypt failure silently omits the header rather than failing the
+    // whole deploy, so one bad row doesn't take an entire Api offline.
+    if (route.upstreamAuthType === "BEARER" && route.upstreamAuthValue) {
+      lines.push(`        proxy_set_header Authorization "Bearer ${escapeNginxString(route.upstreamAuthValue)}";`);
+    } else if (route.upstreamAuthType === "API_KEY" && route.upstreamAuthValue && route.upstreamAuthHeaderName) {
+      lines.push(`        proxy_set_header ${route.upstreamAuthHeaderName} "${escapeNginxString(route.upstreamAuthValue)}";`);
     }
 
     if (route.upstreamPath) {

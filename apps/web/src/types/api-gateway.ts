@@ -1,4 +1,4 @@
-import type { Api, ApiRoute, Certificate, ApiRouteMethod, ProxyStatus, Customer, ApiKey, ApiAccess, ApiRouteAccess } from "@prisma/client";
+import type { Api, ApiRoute, Certificate, ApiRouteMethod, ApiRouteAuthType, ProxyStatus, Customer, ApiKey, ApiAccess, ApiRouteAccess } from "@prisma/client";
 
 export interface ApiFormData {
   name: string;
@@ -24,11 +24,23 @@ export interface ApiRouteFormData {
   authRequired: boolean;
   maxRequestsPerSecond?: number;
   enabled?: boolean;
+  // Credential rproxy itself presents to the backend — see the schema
+  // comment on ApiRoute. upstreamAuthValue is the plaintext secret: on
+  // update, an empty/omitted value means "keep whatever's already stored",
+  // never "clear it" (switch type to NONE to clear).
+  upstreamAuthType?: ApiRouteAuthType;
+  upstreamAuthHeaderName?: string;
+  upstreamAuthValue?: string;
 }
+
+// The client-safe view of a route — never carries the encrypted upstream
+// auth secret, only whether one is set (same "configured" pattern as the
+// Cloudflare integration's apiToken).
+export type ApiRoutePublic = Omit<ApiRoute, "upstreamAuthValueEncrypted"> & { upstreamAuthConfigured: boolean };
 
 export interface ApiWithRelations extends Api {
   certificate: Certificate | null;
-  routes: ApiRoute[];
+  routes: ApiRoutePublic[];
   _count?: { routes: number; access: number };
 }
 
@@ -103,4 +115,4 @@ export interface ScopableApi {
   routes: { id: string; path: string; methods: string[] }[];
 }
 
-export type { ApiRouteMethod, ProxyStatus, ApiRouteAccess };
+export type { ApiRouteMethod, ApiRouteAuthType, ProxyStatus, ApiRouteAccess };
