@@ -21,6 +21,7 @@ Think Nginx Proxy Manager, but without the Docker dependency.
 - **System dashboard** — nginx status, CPU, memory, disk, health checks
 - **Multi-user** — ADMIN and VIEWER roles
 - **Audit log** — every action is recorded, including automated actions (cert renewal, log cleanup) as "system"
+- **API Gateway** — a second, key-authenticated proxying surface for exposing specific backend routes to external customers: per-customer rate limits/quotas, per-key route scoping, usage analytics, an optional public developer-portal per API, and a machine-to-machine signup endpoint for provisioning free-tier keys from an external site
 
 ---
 
@@ -155,6 +156,7 @@ cp .env.example .env.local
 #   CRON_SECRET — any string
 #   REDIS_URL — point at your local Redis (default redis://127.0.0.1:6379 is fine)
 #   GATEWAY_AUTH_SECRET — any string (shared secret between nginx and the internal API Gateway auth endpoint)
+#   GATEWAY_SIGNUP_SECRET / GATEWAY_SIGNUP_API_ID — only needed if using the self-signup endpoint (POST /api/gateway/signup); see below
 pnpm install
 npx prisma db push
 npx prisma db seed
@@ -162,6 +164,19 @@ pnpm dev
 ```
 
 The dev server runs on port 3000.
+
+---
+
+## API Gateway self-signup
+
+`POST /api/gateway/signup` lets an external site provision a free-tier API Gateway `Customer` + `ApiKey` on your behalf — e.g. a "get an API key" button on your own marketing site — without giving that site any admin access to rproxy.
+
+- Authenticated by a shared secret (`GATEWAY_SIGNUP_SECRET`), sent as `X-Gateway-Signup-Secret`, checked with a constant-time comparison — not a session or an API key itself.
+- Grants access to exactly one `Api`, fixed by `GATEWAY_SIGNUP_API_ID` on the rproxy side — the caller can't request access to a different one.
+- Issued keys are always scope-restricted to an allowlist of routes (`GATEWAY_SIGNUP_BLOCKED_PATH_PREFIXES`, default `/home`) — any route under a blocked prefix is unreachable by a self-signup key regardless of the customer's broader access grant, and a newly added route stays blocked by default until an admin explicitly widens a specific customer's scope.
+- Rate limits/quotas are fixed, low, and not caller-configurable (see `signup.service.ts`) — raise a specific customer's limits afterward from the admin UI.
+
+This is optional — leave `GATEWAY_SIGNUP_SECRET` unset and the endpoint rejects every request with 401.
 
 ---
 
