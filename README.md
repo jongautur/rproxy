@@ -4,6 +4,8 @@ A self-hosted, Docker-free reverse proxy manager for Linux — built on nginx, L
 
 Think Nginx Proxy Manager, but without the Docker dependency.
 
+📖 **[Full documentation](docs/00-overview.md)** — every feature, admin-facing behavior, and operational gotcha, in detail beyond what fits in this README.
+
 ![rproxy logo](apps/web/public/logo.png)
 
 ---
