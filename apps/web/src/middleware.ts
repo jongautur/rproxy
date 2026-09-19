@@ -10,6 +10,20 @@ const PUBLIC_PATHS = new Set(["/login", "/api/auth/login", "/api/auth/refresh", 
 const CHANGE_PASSWORD_PATH = "/change-password";
 const MFA_PATH = "/mfa";
 
+// Prefixes, not exact paths — these are whole sub-trees (a slug per API
+// Gateway). Never session-gated here: middleware can't reach Postgres (see
+// the tryRefresh() comment below), so it can't know a given Api's
+// docsPublic flag. The actual public/private decision is made downstream,
+// in Node runtime, by the /docs/[slug] page and its API routes themselves
+// (see docs/[slug]/page.tsx and api/gateway/public/[slug]/*) — same
+// "exempt here, authenticate in the handler" pattern as auth-check's CSRF
+// exemption above.
+const AUTH_EXEMPT_PREFIXES = ["/docs/", "/api/gateway/public/"];
+
+function isAuthExemptPath(pathname: string): boolean {
+  return AUTH_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // Bearer-token / shared-secret endpoints, not cookie-authenticated — CSRF
 // doesn't apply since there's no ambient browser credential to forge.
@@ -22,8 +36,11 @@ const CSRF_EXEMPT_PREFIXES = ["/api/cron/"];
 // authenticated by GATEWAY_AUTH_SECRET + the presented API key, checked in
 // the route handler itself) — without this exemption every auth_request
 // subrequest would be rejected here with 401 before it ever reaches that
-// check, since it carries no session cookie.
-const CSRF_EXEMPT_EXACT = new Set(["/api/gateway/auth-check"]);
+// check, since it carries no session cookie. /api/gateway/signup is the
+// same shape of exemption for a different caller: sleik.is's backend,
+// authenticated by GATEWAY_SIGNUP_SECRET instead (see
+// app/api/gateway/signup/route.ts) — it carries no session cookie either.
+const CSRF_EXEMPT_EXACT = new Set(["/api/gateway/auth-check", "/api/gateway/signup"]);
 
 function isCsrfExemptPath(pathname: string): boolean {
   return CSRF_EXEMPT_EXACT.has(pathname) || CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
@@ -111,7 +128,7 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  if (PUBLIC_PATHS.has(pathname)) {
+  if (PUBLIC_PATHS.has(pathname) || isAuthExemptPath(pathname)) {
     return NextResponse.next();
   }
 

@@ -115,4 +115,76 @@ export interface ScopableApi {
   routes: { id: string; path: string; methods: string[] }[];
 }
 
+// ── Documentation ─────────────────────────────────────────────────────────
+export interface DocParameter {
+  name: string;
+  in: "query" | "path" | "header";
+  required: boolean;
+  description?: string;
+}
+
+export interface DocResponse {
+  status: string;
+  description?: string;
+  example?: string;
+}
+
+export interface ApiDocsSettingsFormData {
+  docsEnabled: boolean;
+  docsTitle?: string;
+  docsDescription?: string;
+  docsVersion?: string;
+  docsIntro?: string;
+  docsAuthContent?: string;
+  docsErrorsContent?: string;
+  docsNotes?: string;
+  docsPublic: boolean;
+  docsSlug?: string;
+  docsLogoUrl?: string;
+  docsCountDisabledRoutes: boolean;
+}
+
+export interface ApiRouteDocsFormData {
+  docInclude: boolean;
+  docSummary?: string;
+  docDescription?: string;
+  docCategory?: string;
+  docDeprecated: boolean;
+  docParameters: DocParameter[];
+  docRequestBodyDescription?: string;
+  docRequestBodyExample?: string;
+  docResponses: DocResponse[];
+  docNotes?: string;
+  docAnyMethods: ApiRouteMethod[];
+}
+
+// One dashboard card on the Docs tab.
+export interface ApiDocsSummary {
+  apiId: string;
+  apiName: string;
+  apiDomain: string;
+  docsEnabled: boolean;
+  docsPublic: boolean;
+  docsSlug: string | null;
+  docsTitle: string | null;
+  totalRoutes: number;
+  documentedRoutes: number;
+  undocumentedRoutes: number;
+  coveragePercent: number;
+}
+
+export interface MissingDocRoute {
+  routeId: string;
+  path: string;
+  methods: string[];
+}
+
+export interface ApiDocsCoverage {
+  totalRoutes: number;
+  documentedRoutes: number;
+  undocumentedRoutes: number;
+  coveragePercent: number;
+  missing: MissingDocRoute[];
+}
+
 export type { ApiRouteMethod, ApiRouteAuthType, ProxyStatus, ApiRouteAccess };

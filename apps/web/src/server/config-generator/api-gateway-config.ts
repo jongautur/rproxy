@@ -7,7 +7,7 @@ import type { Api, ApiRoute, Certificate } from "@prisma/client";
 export type ApiRouteWithAuth = ApiRoute & { upstreamAuthValue: string | null };
 import { isValidDomain, isValidPort, sanitizeNginxValue, getAppPort } from "@/lib/validation";
 import { domainToFilename } from "@/server/config-generator/nginx-config";
-import { zoneNameForRoute, DEFAULT_BURST } from "@/server/config-generator/api-gateway-zones-config";
+import { zoneNameForRoute, zoneNameForDocs, DEFAULT_BURST } from "@/server/config-generator/api-gateway-zones-config";
 import path from "path";
 
 // Key-protected routes are gated by nginx `auth_request` calling this
@@ -40,6 +40,15 @@ function validateUpstreamTarget(host: string, port: number): void {
   }
   if (!isValidPort(port)) {
     throw new Error(`Invalid upstream port: ${port}`);
+  }
+}
+
+// Same char class as docsSlugSchema in validation.ts — re-checked here as
+// defense in depth (this value is interpolated into a proxy_pass URI).
+const DOCS_SLUG_REGEX = /^[a-z0-9-]+$/;
+function validateDocsSlug(slug: string): void {
+  if (!DOCS_SLUG_REGEX.test(slug)) {
+    throw new Error(`Invalid docs slug: ${slug}`);
   }
 }
 
@@ -296,6 +305,70 @@ export function generateApiGatewayConfig(opts: GeneratorOptions): string {
     if (upstreamScheme === "https") {
       lines.push(`        proxy_ssl_verify off;`);
     }
+    lines.push(`    }`);
+    lines.push(``);
+  }
+
+  // ── Developer portal at this gateway's own domain root ──────────────────────
+  // Only when docs are both enabled AND public — private docs stay reachable
+  // only through the admin app's own (session-gated) /docs/[slug] preview,
+  // never at the gateway's public domain. Skipped entirely if some ApiRoute
+  // already claims the root path itself — an explicit route always wins.
+  const rootClaimedByRoute = routes.some((r) => ((basePath + (r.path === "/" ? "" : r.path)) || "/") === "/");
+  if (api.docsEnabled && api.docsPublic && api.docsSlug && !rootClaimedByRoute) {
+    validateDocsSlug(api.docsSlug);
+    const appPort = getAppPort();
+    // Unauthenticated, reachable by anyone — unlike route locations above,
+    // there's no admin-configurable rate here (no customer/key exists yet
+    // at this point), so every docs-portal location shares one flat safety
+    // ceiling (see DOCS_DEFAULT_RATE_PER_SECOND in api-gateway-zones-config.ts)
+    // instead of being left unthrottled against the shared app process.
+    const docsZone = zoneNameForDocs(api.id);
+    lines.push(`    # Developer portal (Docs tab → Documentation settings)`);
+    lines.push(`    location = / {`);
+    lines.push(`        limit_req zone=${docsZone} burst=${DEFAULT_BURST} nodelay;`);
+    lines.push(`        proxy_pass http://127.0.0.1:${appPort}/docs/${api.docsSlug};`);
+    lines.push(`        proxy_http_version 1.1;`);
+    lines.push(`        proxy_set_header Host $host;`);
+    lines.push(`        proxy_set_header X-Real-IP $remote_addr;`);
+    lines.push(`        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`);
+    lines.push(`        proxy_set_header X-Forwarded-Proto $scheme;`);
+    lines.push(`    }`);
+    lines.push(``);
+    // Prefix pass-through (no rewritten URI) — the app resolves the Api by
+    // the slug already embedded in the path itself, not by domain, so this
+    // works unmodified regardless of which gateway domain it was reached
+    // through (see api/gateway/public/[slug]/openapi.json). `/_next/` is the
+    // Next.js app-shell assets the docs page references (JS/CSS chunks,
+    // fonts) and `/docs/` covers the page's own file-convention metadata
+    // sub-routes (e.g. the per-Api icon.tsx favicon at
+    // /docs/<slug>/icon) — without either, the page HTML loads but renders
+    // blank/unstyled, since none of those requests would otherwise match
+    // any location on this gateway's own domain. Deliberately NOT a bare
+    // `location /` catch-all: that would proxy every unmatched path (e.g.
+    // /dashboard, /settings) straight through to the admin app, reachable
+    // on this public domain even though middleware would still reject it —
+    // this allowlist keeps the surface to exactly what the docs page needs.
+    for (const prefix of ["/api/gateway/public/", "/_next/", "/docs/"]) {
+      lines.push(`    location ${prefix} {`);
+      lines.push(`        limit_req zone=${docsZone} burst=${DEFAULT_BURST} nodelay;`);
+      lines.push(`        proxy_pass http://127.0.0.1:${appPort};`);
+      lines.push(`        proxy_http_version 1.1;`);
+      lines.push(`        proxy_set_header Host $host;`);
+      lines.push(`        proxy_set_header X-Real-IP $remote_addr;`);
+      lines.push(`        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`);
+      lines.push(`        proxy_set_header X-Forwarded-Proto $scheme;`);
+      lines.push(`    }`);
+      lines.push(``);
+    }
+    lines.push(`    location = /favicon.ico {`);
+    lines.push(`        limit_req zone=${docsZone} burst=${DEFAULT_BURST} nodelay;`);
+    lines.push(`        proxy_pass http://127.0.0.1:${appPort};`);
+    lines.push(`        proxy_http_version 1.1;`);
+    lines.push(`        proxy_set_header Host $host;`);
+    lines.push(`        proxy_set_header X-Real-IP $remote_addr;`);
+    lines.push(`        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`);
+    lines.push(`        proxy_set_header X-Forwarded-Proto $scheme;`);
     lines.push(`    }`);
     lines.push(``);
   }

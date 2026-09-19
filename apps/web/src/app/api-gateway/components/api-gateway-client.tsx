@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Plug, Users, BarChart3, Search } from "lucide-react";
+import { Plus, Plug, Users, BarChart3, Search, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
@@ -11,6 +11,7 @@ import { ApiFormDialog } from "./api-form-dialog";
 import { CustomersTable } from "./customers-table";
 import { CustomerFormDialog } from "./customer-form-dialog";
 import { AnalyticsPanel } from "./analytics-panel";
+import { DocsPanel } from "./docs-panel";
 import type { ApiWithRelations, CustomerWithRelations } from "@/types/api-gateway";
 
 interface PaginatedApis {
@@ -138,6 +139,10 @@ export function ApiGatewayClient() {
             <BarChart3 className="w-4 h-4" />
             Analytics
           </TabsTrigger>
+          <TabsTrigger value="docs" className="gap-2">
+            <BookOpen className="w-4 h-4" />
+            Docs
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="apis" className="mt-4 space-y-4">
@@ -182,6 +187,10 @@ export function ApiGatewayClient() {
 
         <TabsContent value="analytics" className="mt-4">
           <AnalyticsPanel />
+        </TabsContent>
+
+        <TabsContent value="docs" className="mt-4">
+          <DocsPanel />
         </TabsContent>
       </Tabs>
 

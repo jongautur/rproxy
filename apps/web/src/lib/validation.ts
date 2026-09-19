@@ -186,6 +186,18 @@ export const customerSchema = z.object({
   notes: z.string().max(2048).optional(),
 });
 
+// Body of the sleik.is → rproxy machine-to-machine signup call (see
+// app/api/gateway/signup/route.ts). `uid` is sleik.is's own Keycloak user
+// id, not persisted here (rproxy's Customer has no such column) — it only
+// flows into the audit log details so a signup can be traced back to the
+// originating sleik.is account without rproxy needing to model identity
+// providers it doesn't own.
+export const gatewaySignupSchema = z.object({
+  uid: z.string().min(1).max(128),
+  name: z.string().min(1).max(128),
+  email: z.string().email().max(256),
+});
+
 export const apiKeyCreateSchema = z.object({
   label: z.string().max(128).default(""),
   expiresAt: z.coerce.date().optional(),
@@ -229,6 +241,75 @@ export const apiRouteAccessSchema = z.object({
 export const apiRouteAccessCreateSchema = z.object({
   customerId: z.string().cuid(),
   ...accessLimitFields,
+});
+
+// ── API Gateway documentation ────────────────────────────────────────────────
+// Docs slug feeds a public URL (/docs/[slug]) and a filename-safe cache key —
+// same char class as a typical URL path segment, deliberately not the cuid id
+// (see Api.docsSlug in schema.prisma).
+export const docsSlugSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9-]+$/, "Slug must be lowercase letters, digits, and hyphens only");
+
+export const apiDocsSettingsSchema = z.object({
+  docsEnabled: z.boolean().default(false),
+  docsTitle: z.string().max(128).optional(),
+  docsDescription: z.string().max(2048).optional(),
+  docsVersion: z.string().max(32).optional(),
+  docsIntro: z.string().max(20_000).optional(),
+  docsAuthContent: z.string().max(20_000).optional(),
+  docsErrorsContent: z.string().max(20_000).optional(),
+  docsNotes: z.string().max(20_000).optional(),
+  docsPublic: z.boolean().default(false),
+  docsSlug: docsSlugSchema.optional(),
+  // https only — the docs page is always served over TLS, and the /docs
+  // CSP's img-src only allows the `https:` scheme (see next.config.ts).
+  docsLogoUrl: z.string().url().max(1024).startsWith("https://").optional(),
+  docsCountDisabledRoutes: z.boolean().default(false),
+});
+
+// Bare identifier only — this becomes an OpenAPI parameter `name`, embedded
+// as-is into the generated document (see docs.service.ts#buildOperation). A
+// name copy-pasted from a URL query string (e.g. "?q=" instead of "q")
+// produces an invalid OpenAPI parameter that breaks Scalar's operation
+// rendering entirely (observed: "Select an operation to view details"
+// instead of the actual operation), so this is rejected at the boundary
+// rather than left for the docs viewer to choke on.
+const docParameterNameSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_.-]+$/, "Parameter name must not include ?, =, &, spaces, or other special characters");
+
+const docParameterSchema = z.object({
+  name: docParameterNameSchema,
+  in: z.enum(["query", "path", "header"]),
+  required: z.boolean().default(false),
+  description: z.string().max(1024).optional(),
+});
+
+const docResponseSchema = z.object({
+  status: z.string().min(1).max(16),
+  description: z.string().max(1024).optional(),
+  example: z.string().max(10_000).optional(),
+});
+
+export const apiRouteDocsSchema = z.object({
+  docInclude: z.boolean().default(true),
+  docSummary: z.string().max(256).optional(),
+  docDescription: z.string().max(10_000).optional(),
+  docCategory: z.string().max(64).optional(),
+  docDeprecated: z.boolean().default(false),
+  docParameters: z.array(docParameterSchema).max(50).default([]),
+  docRequestBodyDescription: z.string().max(2048).optional(),
+  docRequestBodyExample: z.string().max(20_000).optional(),
+  docResponses: z.array(docResponseSchema).max(50).default([]),
+  docNotes: z.string().max(10_000).optional(),
+  // Only meaningful when the route itself has no methods set (any method) —
+  // see ApiRoute.docAnyMethods in schema.prisma.
+  docAnyMethods: z.array(apiRouteMethodSchema).max(5).default([]),
 });
 
 // ── Custom directives safety check ───────────────────────────────────────────

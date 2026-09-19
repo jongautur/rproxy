@@ -20,10 +20,24 @@ export function zoneNameForRoute(routeId: string): string {
   return `gwz_${sanitizeZoneName(routeId)}`;
 }
 
+// Distinct "gwzd_" prefix from zoneNameForRoute's "gwz_" so a route id and
+// an Api id can never collide into the same zone name.
+export function zoneNameForDocs(apiId: string): string {
+  return `gwzd_${sanitizeZoneName(apiId)}`;
+}
+
 // A flat default — burst tuning isn't exposed in the V1 schema. Chosen to
 // absorb a short traffic spike without materially weakening the ceiling
 // this zone exists to enforce.
 const DEFAULT_BURST = 10;
+
+// The public developer portal (api-gateway-config.ts's docs-proxy locations)
+// has no per-customer concept — it's reachable by anyone before any API key
+// exists — so unlike route zones there's no admin-configurable rate to fall
+// back to. This is just a safety ceiling against it becoming an unthrottled
+// path to the shared app process (Node singleton also serving the admin
+// dashboard), not a tuned limit, so a flat default is enough.
+const DOCS_DEFAULT_RATE_PER_SECOND = 20;
 
 type ApiWithRoutes = Api & { routes: ApiRoute[] };
 
@@ -36,6 +50,10 @@ export function generateRateLimitZonesConfig(apis: ApiWithRoutes[]): string {
       if (!rate) continue; // no static safety limit configured for this route
       const zoneName = zoneNameForRoute(route.id);
       lines.push(`limit_req_zone $binary_remote_addr zone=${zoneName}:10m rate=${rate}r/s;`);
+    }
+    if (api.docsEnabled && api.docsPublic && api.docsSlug) {
+      const zoneName = zoneNameForDocs(api.id);
+      lines.push(`limit_req_zone $binary_remote_addr zone=${zoneName}:10m rate=${DOCS_DEFAULT_RATE_PER_SECOND}r/s;`);
     }
   }
 

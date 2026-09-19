@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import type { ApiRoutePublic, ApiRouteAuthType } from "@/types/api-gateway";
+import { RouteDocsEditor } from "./route-docs-editor";
 
 const ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 
@@ -416,6 +417,7 @@ export function ApiRoutesEditor({ apiId, apiDomain, apiBasePath }: { apiId: stri
                 apiBasePath={apiBasePath}
                 authConfigured={r.upstreamAuthConfigured}
               />
+              <RouteDocsEditor apiId={apiId} route={r} onSaved={fetchRoutes} />
               <div className="flex items-center justify-between gap-2">
                 <Button type="button" variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => setExpandedId(null)}>
                   <ChevronUp className="w-3.5 h-3.5" /> Collapse

@@ -416,6 +416,32 @@ model Api {
   certificate   Certificate? @relation(fields: [certificateId], references: [id], onDelete: SetNull)
   certificateId String?      @map("certificate_id")
 
+  // ── Documentation ────────────────────────────────────────────────────────
+  // The API Gateway config (this model + ApiRoute) is the source of truth
+  // for endpoint structure — these fields are purely presentational
+  // metadata layered on top for docs.service.ts's OpenAPI generator. Never
+  // upstream host/port/credentials here; those stay server-side only (see
+  // docs.service.ts#generateOpenApiSpec).
+  docsEnabled             Boolean @default(false) @map("docs_enabled")
+  docsTitle               String? @map("docs_title")
+  docsDescription         String? @map("docs_description")
+  docsVersion             String? @map("docs_version")
+  // Markdown. Rendered as OpenAPI `description` text (Scalar renders
+  // CommonMark natively) — never parsed/sanitized to HTML server-side.
+  docsIntro               String? @map("docs_intro")
+  docsAuthContent         String? @map("docs_auth_content")
+  docsErrorsContent       String? @map("docs_errors_content")
+  docsNotes               String? @map("docs_notes")
+  docsPublic              Boolean @default(false) @map("docs_public")
+  // URL-safe identifier for the public /docs/[slug] viewer and
+  // /api/gateway/public/[slug]/openapi.json — deliberately not the cuid id,
+  // so a public docs URL doesn't leak the internal record id.
+  docsSlug                String? @unique @map("docs_slug")
+  docsLogoUrl             String? @map("docs_logo_url")
+  // Disabled routes are excluded from coverage by default (an admin usually
+  // doesn't care that a disabled route lacks docs) — this opts back in.
+  docsCountDisabledRoutes Boolean @default(false) @map("docs_count_disabled_routes")
+
   routes ApiRoute[]
   access ApiAccess[]
 
@@ -450,6 +476,30 @@ model ApiRoute {
   upstreamAuthType          ApiRouteAuthType @default(NONE) @map("upstream_auth_type")
   upstreamAuthHeaderName    String?          @map("upstream_auth_header_name") // API_KEY only; e.g. "X-Api-Key"
   upstreamAuthValueEncrypted String?         @map("upstream_auth_value_encrypted")
+
+  // ── Documentation ────────────────────────────────────────────────────────
+  // Presentational metadata only — path/methods/authRequired/enabled above
+  // remain the single source of truth and are never duplicated here; see
+  // docs.service.ts. docParameters/docRequestBodyExample/docResponses are
+  // free-form JSON/text the admin fills in, rendered into the generated
+  // OpenAPI document as-is (never containing upstream host/port/credentials).
+  docInclude    Boolean          @default(true) @map("doc_include")
+  docSummary    String?          @map("doc_summary")
+  docDescription String?         @map("doc_description")
+  docCategory   String?          @map("doc_category")
+  docDeprecated Boolean          @default(false) @map("doc_deprecated")
+  // Array of { name, in: "query"|"path"|"header", required, description }.
+  docParameters Json?            @map("doc_parameters")
+  docRequestBodyDescription String? @map("doc_request_body_description")
+  docRequestBodyExample     String? @map("doc_request_body_example")
+  // Array of { status, description, example }.
+  docResponses  Json?            @map("doc_responses")
+  docNotes      String?          @map("doc_notes")
+  // Only consulted when `methods` is empty (an "any method" route) — OpenAPI
+  // has no generic ANY operation, so the admin must explicitly pick which
+  // methods to document; an empty selection means this route is skipped by
+  // the OpenAPI generator (see docs.service.ts#generateOpenApiSpec).
+  docAnyMethods ApiRouteMethod[] @default([]) @map("doc_any_methods")
 
   api         Api                @relation(fields: [apiId], references: [id], onDelete: Cascade)
   routeAccess ApiRouteAccess[]
