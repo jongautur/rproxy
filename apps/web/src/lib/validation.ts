@@ -198,6 +198,10 @@ export const gatewaySignupSchema = z.object({
   email: z.string().email().max(256),
 });
 
+export const gatewayRotateSchema = z.object({
+  customerId: z.string().min(1).max(128),
+});
+
 export const apiKeyCreateSchema = z.object({
   label: z.string().max(128).default(""),
   expiresAt: z.coerce.date().optional(),

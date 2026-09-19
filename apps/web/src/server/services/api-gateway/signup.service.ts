@@ -23,7 +23,9 @@ const FREE_TIER_MONTHLY_QUOTA = 2000;
 // route trees are added later.
 const DEFAULT_BLOCKED_PATH_PREFIXES = "/home";
 
-function isBlockedPath(path: string): boolean {
+// Exported for reuse by rotate.service.ts, which must apply the exact same
+// allowlist rule when recomputing a rotated key's scope.
+export function isBlockedPath(path: string): boolean {
   const prefixes = (process.env.GATEWAY_SIGNUP_BLOCKED_PATH_PREFIXES ?? DEFAULT_BLOCKED_PATH_PREFIXES)
     .split(",")
     .map((p) => p.trim())

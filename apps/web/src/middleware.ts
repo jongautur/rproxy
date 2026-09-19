@@ -36,11 +36,12 @@ const CSRF_EXEMPT_PREFIXES = ["/api/cron/"];
 // authenticated by GATEWAY_AUTH_SECRET + the presented API key, checked in
 // the route handler itself) — without this exemption every auth_request
 // subrequest would be rejected here with 401 before it ever reaches that
-// check, since it carries no session cookie. /api/gateway/signup is the
-// same shape of exemption for a different caller: sleik.is's backend,
-// authenticated by GATEWAY_SIGNUP_SECRET instead (see
-// app/api/gateway/signup/route.ts) — it carries no session cookie either.
-const CSRF_EXEMPT_EXACT = new Set(["/api/gateway/auth-check", "/api/gateway/signup"]);
+// check, since it carries no session cookie. /api/gateway/signup and
+// /api/gateway/rotate are the same shape of exemption for a different
+// caller: sleik.is's backend, authenticated by GATEWAY_SIGNUP_SECRET instead
+// (see app/api/gateway/signup/route.ts) — they carry no session cookie
+// either.
+const CSRF_EXEMPT_EXACT = new Set(["/api/gateway/auth-check", "/api/gateway/signup", "/api/gateway/rotate"]);
 
 function isCsrfExemptPath(pathname: string): boolean {
   return CSRF_EXEMPT_EXACT.has(pathname) || CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
