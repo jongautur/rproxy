@@ -54,13 +54,21 @@ export async function GET(req: NextRequest) {
 
   const result = await checkAccess(apiKey, apiId, routeId, method);
 
+  // X-Gateway-RateLimit-* carry the per-second rate-limit layer's limit/
+  // remaining back through nginx (see api-gateway-config.ts's
+  // auth_request_set wiring), which re-exposes them to the actual caller as
+  // the conventional X-RateLimit-Limit/X-RateLimit-Remaining — only present
+  // when a rateLimit is configured at this layer.
   if (result.ok) {
-    return new NextResponse(null, {
-      status: 200,
-      headers: { "X-Gateway-Customer-Id": result.customerId },
-    });
+    const headers: Record<string, string> = { "X-Gateway-Customer-Id": result.customerId };
+    if (result.rateLimit !== undefined) headers["X-Gateway-RateLimit-Limit"] = String(result.rateLimit);
+    if (result.rateRemaining !== undefined) headers["X-Gateway-RateLimit-Remaining"] = String(result.rateRemaining);
+    return new NextResponse(null, { status: 200, headers });
   }
 
-  const headers = result.denyReason ? { "X-Gateway-Deny-Reason": result.denyReason } : undefined;
-  return new NextResponse(null, { status: result.status, headers });
+  const headers: Record<string, string> = {};
+  if (result.denyReason) headers["X-Gateway-Deny-Reason"] = result.denyReason;
+  if (result.rateLimit !== undefined) headers["X-Gateway-RateLimit-Limit"] = String(result.rateLimit);
+  if (result.rateRemaining !== undefined) headers["X-Gateway-RateLimit-Remaining"] = String(result.rateRemaining);
+  return new NextResponse(null, { status: result.status, headers: Object.keys(headers).length ? headers : undefined });
 }

@@ -20,8 +20,8 @@ export type DenyReason = "forbidden" | "rate_limited" | "quota_exceeded";
 export const UNAUTHENTICATED_CUSTOMER_ID = "unauthenticated";
 
 export type AccessCheckResult =
-  | { ok: true; customerId: string }
-  | { ok: false; status: 401 | 403; denyReason?: DenyReason };
+  | { ok: true; customerId: string; rateLimit?: number; rateRemaining?: number }
+  | { ok: false; status: 401 | 403; denyReason?: DenyReason; rateLimit?: number; rateRemaining?: number };
 
 function isExpired(expiresAt: Date | null): boolean {
   return !!expiresAt && expiresAt.getTime() <= Date.now();
@@ -101,7 +101,12 @@ function endOfMonthUnix(now: Date): number {
   return Math.floor(new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime() / 1000);
 }
 
-export type RateQuotaResult = { ok: true } | { ok: false; reason: "rate_limited" | "quota_exceeded" };
+// limit/remaining reflect the per-second rate-limit layer specifically (not
+// the daily/monthly quota) — the conventional meaning of X-RateLimit-* — and
+// are only present when a rateLimit is actually configured at this layer.
+export type RateQuotaResult =
+  | { ok: true; limit?: number; remaining?: number }
+  | { ok: false; reason: "rate_limited" | "quota_exceeded"; limit?: number; remaining?: number };
 
 // Rate limiting is always keyed per physical route hit (short-horizon
 // throttle, doesn't need to be shared across routes); quota is keyed per
@@ -146,25 +151,27 @@ export async function checkRateAndQuota(customerId: string, routeId: string, lim
     // Each key contributes its own number of results (INCR[, EXPIRE, GET]) in
     // the order pushed above.
     let i = 0;
+    let rateInfo: { limit?: number; remaining?: number } = {};
     if (rateKeyCurr) {
       const currCount = results[i]![1] as number;
       const prevCount = Number(results[i + 2]![1] as string | null) || 0;
       i += 3;
       const weightedCount = prevCount * (1 - elapsedFraction) + currCount;
-      if (weightedCount > limits.rateLimit!) return { ok: false, reason: "rate_limited" };
+      rateInfo = { limit: limits.rateLimit, remaining: Math.max(0, Math.floor(limits.rateLimit! - weightedCount)) };
+      if (weightedCount > limits.rateLimit!) return { ok: false, reason: "rate_limited", ...rateInfo };
     }
     if (dayKey) {
       const count = results[i]![1] as number;
       i += 2;
-      if (count > limits.dailyQuota!) return { ok: false, reason: "quota_exceeded" };
+      if (count > limits.dailyQuota!) return { ok: false, reason: "quota_exceeded", ...rateInfo };
     }
     if (monthKey) {
       const count = results[i]![1] as number;
       i += 2;
-      if (count > limits.monthlyQuota!) return { ok: false, reason: "quota_exceeded" };
+      if (count > limits.monthlyQuota!) return { ok: false, reason: "quota_exceeded", ...rateInfo };
     }
 
-    return { ok: true };
+    return { ok: true, ...rateInfo };
   } catch (err) {
     console.error("[gateway-auth] Redis unavailable for rate/quota check:", err instanceof Error ? err.message : err);
     if (failOpen()) return { ok: true };
@@ -260,9 +267,20 @@ export async function checkAccess(
 
   if (!rateQuotaResult.ok) {
     recordUsage(apiKey.customerId, apiId, routeId, apiKey.id, "throttled");
-    return { ok: false, status: 403, denyReason: rateQuotaResult.reason };
+    return {
+      ok: false,
+      status: 403,
+      denyReason: rateQuotaResult.reason,
+      rateLimit: rateQuotaResult.limit,
+      rateRemaining: rateQuotaResult.remaining,
+    };
   }
 
   recordUsage(apiKey.customerId, apiId, routeId, apiKey.id, "allowed");
-  return { ok: true, customerId: apiKey.customerId };
+  return {
+    ok: true,
+    customerId: apiKey.customerId,
+    rateLimit: rateQuotaResult.limit,
+    rateRemaining: rateQuotaResult.remaining,
+  };
 }

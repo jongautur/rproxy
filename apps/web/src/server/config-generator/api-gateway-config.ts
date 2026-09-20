@@ -90,6 +90,12 @@ location @gw_401 {
 }
 location @gw_403 {
     default_type application/json;
+    if ($gw_ratelimit_limit != "") {
+        add_header X-RateLimit-Limit $gw_ratelimit_limit always;
+    }
+    if ($gw_ratelimit_remaining != "") {
+        add_header X-RateLimit-Remaining $gw_ratelimit_remaining always;
+    }
     if ($gw_deny_reason = "rate_limited") {
         return 429 '{"success":false,"error":"Rate limit exceeded"}';
     }
@@ -269,9 +275,21 @@ export function generateApiGatewayConfig(opts: GeneratorOptions): string {
       lines.push(`        auth_request ${INTERNAL_AUTH_URI};`);
       lines.push(`        auth_request_set $gw_deny_reason $upstream_http_x_gateway_deny_reason;`);
       lines.push(`        auth_request_set $gw_customer_id $upstream_http_x_gateway_customer_id;`);
+      // Per-second rate-limit layer only (not daily/monthly quota) — see
+      // gateway-auth.service.ts#checkRateAndQuota. Empty when no rateLimit
+      // is configured for this customer/route, so the two `if`s below skip
+      // emitting an empty header to the caller in that case.
+      lines.push(`        auth_request_set $gw_ratelimit_limit $upstream_http_x_gateway_ratelimit_limit;`);
+      lines.push(`        auth_request_set $gw_ratelimit_remaining $upstream_http_x_gateway_ratelimit_remaining;`);
       lines.push(`        error_page 401 = @gw_401;`);
       lines.push(`        error_page 403 = @gw_403;`);
       lines.push(`        proxy_set_header X-Gateway-Customer-Id $gw_customer_id;`);
+      lines.push(`        if ($gw_ratelimit_limit != "") {`);
+      lines.push(`            add_header X-RateLimit-Limit $gw_ratelimit_limit always;`);
+      lines.push(`        }`);
+      lines.push(`        if ($gw_ratelimit_remaining != "") {`);
+      lines.push(`            add_header X-RateLimit-Remaining $gw_ratelimit_remaining always;`);
+      lines.push(`        }`);
     }
 
     // Credential rproxy itself presents to the BACKEND — independent of
