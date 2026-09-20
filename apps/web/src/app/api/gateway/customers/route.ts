@@ -18,7 +18,13 @@ export async function GET(req: NextRequest) {
     const where = customerId
       ? { id: customerId }
       : search
-        ? { OR: [{ name: { contains: search, mode: "insensitive" as const } }, { email: { contains: search, mode: "insensitive" as const } }] }
+        ? {
+            OR: [
+              { id: search },
+              { name: { contains: search, mode: "insensitive" as const } },
+              { email: { contains: search, mode: "insensitive" as const } },
+            ],
+          }
         : {};
 
     const [items, total] = await Promise.all([
