@@ -13,10 +13,13 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
     const perPage = Math.min(100, Math.max(1, parseInt(searchParams.get("perPage") ?? "20", 10)));
     const search = searchParams.get("search") ?? "";
+    const customerId = searchParams.get("customerId") ?? "";
 
-    const where = search
-      ? { OR: [{ name: { contains: search, mode: "insensitive" as const } }, { email: { contains: search, mode: "insensitive" as const } }] }
-      : {};
+    const where = customerId
+      ? { id: customerId }
+      : search
+        ? { OR: [{ name: { contains: search, mode: "insensitive" as const } }, { email: { contains: search, mode: "insensitive" as const } }] }
+        : {};
 
     const [items, total] = await Promise.all([
       prisma.customer.findMany({
