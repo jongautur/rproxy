@@ -48,6 +48,14 @@ export async function probeProxy(proxy: ProxyHost): Promise<ProbeResult> {
   const scheme = (proxy.forwardScheme ?? "http") as string;
   const start = Date.now();
 
+  // Static sites are served by local nginx, rather than an upstream.
+  if (proxy.hostType === "STATIC") {
+    const cert = proxy.sslEnabled && proxy.certificateId
+      ? await prisma.certificate.findUnique({ where: { id: proxy.certificateId } }) : null;
+    const tls = !!(cert?.certPath && cert?.keyPath);
+    return probeHttp(tls ? https : http, "127.0.0.1", tls ? proxy.httpsPort : proxy.listenPort, start, proxy.domain);
+  }
+
   // gRPC: TCP connectivity check (no HTTP semantics)
   if (scheme === "grpc" || scheme === "grpcs") {
     return probeTcp(proxy.forwardHost, proxy.forwardPort, start);

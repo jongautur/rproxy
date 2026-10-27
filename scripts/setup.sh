@@ -271,7 +271,7 @@ fi
 # safe now because the privileged helper it can sudo-run lives outside this
 # tree at $HELPER_INSTALL_PATH, root-owned and not writable by rproxy.
 info "Setting up directories..."
-as_root mkdir -p /var/lib/rproxy/staging /var/log/rproxy
+as_root mkdir -p /var/lib/rproxy/staging /var/lib/rproxy/static-sites /var/log/rproxy
 as_root mkdir -p /var/www/html/.well-known/acme-challenge
 as_root chown -R "${RPROXY_USER}:${RPROXY_USER}" \
   /var/lib/rproxy \

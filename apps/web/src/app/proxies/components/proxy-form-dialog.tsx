@@ -111,10 +111,14 @@ interface Props {
 }
 
 interface FormState {
+  hostType: "PROXY" | "STATIC";
+  spaFallback: boolean;
   domain: string;
   forwardScheme: "http" | "https" | "grpc" | "grpcs";
   forwardHost: string;
   forwardPort: string;
+  backupHost: string;
+  backupPort: string;
   listenPort: string;
   httpsPort: string;
   sslEnabled: boolean;
@@ -130,10 +134,14 @@ interface FormState {
 }
 
 const DEFAULT: FormState = {
+  hostType: "PROXY",
+  spaFallback: false,
   domain: "",
   forwardScheme: "http",
   forwardHost: "",
   forwardPort: "80",
+  backupHost: "",
+  backupPort: "",
   listenPort: "80",
   httpsPort: "443",
   sslEnabled: false,
@@ -159,6 +167,8 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
 
   const [form, setForm] = useState<FormState>(DEFAULT);
   const [portMode, setPortMode] = useState<"80" | "443" | "custom">("80");
+  const [siteFiles, setSiteFiles] = useState<File[]>([]);
+  const [savedHostId, setSavedHostId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<NginxTestResult | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -207,9 +217,13 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
     syncEasyFromRaw(p.customLocations ?? "", p.customServer ?? "");
     setForm({
       domain: p.domain,
+      hostType: p.hostType === "STATIC" ? "STATIC" : "PROXY",
+      spaFallback: p.spaFallback ?? false,
       forwardScheme: (p.forwardScheme ?? "http") as "http" | "https" | "grpc" | "grpcs",
       forwardHost: p.forwardHost,
       forwardPort: fp,
+      backupHost: p.backupHost ?? "",
+      backupPort: p.backupPort != null ? String(p.backupPort) : "",
       listenPort: String(p.listenPort),
       httpsPort: String(p.httpsPort),
       sslEnabled: p.sslEnabled,
@@ -230,6 +244,8 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
 
   useEffect(() => {
     if (open) {
+      setSiteFiles([]);
+      setSavedHostId(null);
       if (proxy) {
         // The row handed in by the table can be stale (e.g. attached from
         // a background tab, or the list hasn't refetched since another
@@ -321,14 +337,24 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!form.domain.trim()) e.domain = "Domain is required";
-    if (!form.forwardHost.trim()) e.forwardHost = "Forward host is required";
+    if (form.hostType === "PROXY" && !form.forwardHost.trim()) e.forwardHost = "Forward host is required";
     const port = parseInt(form.forwardPort, 10);
-    if (!port || port < 1 || port > 65535) e.forwardPort = "Port must be 1–65535";
+    if (form.hostType === "PROXY" && (!port || port < 1 || port > 65535)) e.forwardPort = "Port must be 1–65535";
+    if (form.hostType === "PROXY" && (form.backupHost.trim() || form.backupPort.trim())) {
+      const bport = parseInt(form.backupPort, 10);
+      if (!form.backupHost.trim()) e.backupHost = "Backup host is required when a backup port is set";
+      if (!bport || bport < 1 || bport > 65535) e.backupPort = "Port must be 1–65535";
+    }
     const lport = parseInt(form.listenPort, 10);
     if (!lport || lport < 1 || lport > 65535) e.listenPort = "Port must be 1–65535";
     if (form.sslEnabled) {
       const hport = parseInt(form.httpsPort, 10);
       if (!hport || hport < 1 || hport > 65535) e.httpsPort = "Port must be 1–65535";
+    }
+    if (form.hostType === "STATIC") {
+      if (!proxy?.staticRevision && !siteFiles.length) e.siteFiles = "Choose an HTML file or website folder";
+      if (siteFiles.length && !siteFiles.some(file => file.name === "index.html")) e.siteFiles = "The folder must contain index.html at its root";
+      if (siteFiles.length > 2000 || siteFiles.reduce((sum, file) => sum + file.size, 0) > 50 * 1024 * 1024) e.siteFiles = "Upload up to 2000 files and 50 MB";
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -340,9 +366,13 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
     try {
       const body = {
         domain: form.domain.trim().toLowerCase(),
+        hostType: form.hostType,
+        spaFallback: form.spaFallback,
         forwardScheme: form.forwardScheme,
-        forwardHost: form.forwardHost.trim(),
-        forwardPort: parseInt(form.forwardPort, 10),
+        forwardHost: form.hostType === "STATIC" ? "localhost" : form.forwardHost.trim(),
+        forwardPort: form.hostType === "STATIC" ? 80 : parseInt(form.forwardPort, 10),
+        backupHost: form.hostType === "PROXY" && form.backupHost.trim() ? form.backupHost.trim() : null,
+        backupPort: form.hostType === "PROXY" && form.backupHost.trim() ? parseInt(form.backupPort, 10) : null,
         listenPort: parseInt(form.listenPort, 10),
         httpsPort: parseInt(form.httpsPort, 10),
         sslEnabled: form.sslEnabled,
@@ -357,8 +387,9 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
         accessListId: form.accessListId ?? null,
       };
 
-      const url = isEdit ? `/api/proxies/${proxy!.id}` : "/api/proxies";
-      const method = isEdit ? "PATCH" : "POST";
+      const hostId = proxy?.id ?? savedHostId;
+      const url = hostId ? `/api/proxies/${hostId}` : "/api/proxies";
+      const method = hostId ? "PATCH" : "POST";
 
       const res = await fetch(url, {
         method,
@@ -368,7 +399,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
 
       const json = await res.json() as {
         success: boolean;
-        data?: { proxy: unknown; nginxTest: NginxTestResult; dnsRecord?: { created: boolean; error?: string } };
+        data?: { proxy: { id: string }; nginxTest: NginxTestResult; dnsRecord?: { created: boolean; error?: string } };
         error?: string;
         details?: Record<string, string[]>;
       };
@@ -386,6 +417,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
         return;
       }
 
+      if (!hostId && json.data?.proxy.id) setSavedHostId(json.data.proxy.id);
       setTestResult(json.data?.nginxTest ?? null);
 
       if (json.data?.nginxTest?.success === false) {
@@ -397,6 +429,18 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
         return;
       }
 
+      if (form.hostType === "STATIC" && siteFiles.length && json.data?.proxy.id) {
+        const upload = new FormData();
+        for (const file of siteFiles) upload.append("files", file, file.name);
+        const response = await fetch(`/api/proxies/${json.data.proxy.id}/files`, { method: "POST", body: upload });
+        const result = await response.json() as { error?: string; data?: { nginxTest: NginxTestResult } };
+        if (!response.ok || !result.data?.nginxTest.success) {
+          setTestResult(result.data?.nginxTest ?? null);
+          toast({ variant: "destructive", title: "Website upload failed", description: result.error ?? result.data?.nginxTest.output });
+          return;
+        }
+        setSiteFiles([]);
+      }
       toast({ title: isEdit ? "Proxy updated" : "Proxy created", description: form.domain });
 
       if (json.data?.dnsRecord && !json.data.dnsRecord.created) {
@@ -460,6 +504,42 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
                 )}
               </div>
 
+              <div className="col-span-2 space-y-2">
+                <Label>Host type</Label>
+                <Select value={form.hostType} onValueChange={(v) => set("hostType", v as FormState["hostType"])}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PROXY">Reverse proxy</SelectItem>
+                    <SelectItem value="STATIC">Static website</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {form.hostType === "STATIC" && (
+                <div className="col-span-2 space-y-3 rounded-lg border p-4">
+                  <Label>Website files</Label>
+                  <p className="text-xs text-muted-foreground">Upload one HTML file, or a folder with index.html at its root. Up to 2000 files and 50 MB. Uploading replaces the complete website.</p>
+                  {proxy?.staticRevision && <p className="text-xs text-muted-foreground">A website is already uploaded. Leave these empty to keep it.</p>}
+                  <Label htmlFor="site-html">HTML file</Label>
+                  <Input id="site-html" type="file" accept=".html,.htm" disabled={saving} onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    setSiteFiles(file ? [new File([file], "index.html", { type: file.type })] : []);
+                  }} />
+                  <Label htmlFor="site-folder">Website folder</Label>
+                  <Input id="site-folder" type="file" multiple {...{ webkitdirectory: "", directory: "" }} disabled={saving} onChange={(e) => {
+                    setSiteFiles(Array.from(e.target.files ?? []).map(file => {
+                      const relative = file.webkitRelativePath;
+                      return new File([file], relative ? relative.split("/").slice(1).join("/") : file.name, { type: file.type });
+                    }));
+                  }} />
+                  {siteFiles.length > 0 && <p className="text-xs">{siteFiles.length} files selected ({(siteFiles.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024).toFixed(1)} MB)</p>}
+                  {errors.siteFiles && <p className="text-xs text-destructive">{errors.siteFiles}</p>}
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="spa-fallback">SPA fallback to index.html</Label>
+                    <Switch id="spa-fallback" checked={form.spaFallback} onCheckedChange={(v) => set("spaFallback", v)} />
+                  </div>
+                </div>
+              )}
+              {form.hostType === "PROXY" && <>
               <div className="space-y-2">
                 <Label>Scheme</Label>
                 <div className="flex gap-1">
@@ -532,6 +612,36 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
                 {errors.forwardPort && <p className="text-xs text-destructive">{errors.forwardPort}</p>}
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="backupHost">Backup Hostname / IP (optional)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="backupHost"
+                    placeholder="192.168.1.20"
+                    value={form.backupHost}
+                    onChange={(e) => set("backupHost", e.target.value)}
+                    className={errors.backupHost ? "border-destructive" : ""}
+                  />
+                  <Input
+                    id="backupPort"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    placeholder="Port"
+                    value={form.backupPort}
+                    onChange={(e) => set("backupPort", e.target.value)}
+                    className={`w-24 ${errors.backupPort ? "border-destructive" : ""}`}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Used only while the primary is unreachable or returns 502/503. Same scheme as the primary.
+                </p>
+                {errors.backupHost && <p className="text-xs text-destructive">{errors.backupHost}</p>}
+                {errors.backupPort && <p className="text-xs text-destructive">{errors.backupPort}</p>}
+              </div>
+
+              </>}
+
               {!form.sslEnabled ? (
                 <div className="space-y-2">
                   <Label htmlFor="listenPort">
@@ -591,7 +701,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
             <div className="grid grid-cols-2 gap-3 pt-2">
               {(
                 [
-                  { key: "websocket", label: "WebSocket Support", desc: "Enables WS/WSS upgrade headers" },
+                  ...(form.hostType === "PROXY" ? [{ key: "websocket" as const, label: "WebSocket Support", desc: "Enables WS/WSS upgrade headers" }] : []),
                   { key: "http2",     label: "HTTP/2 Support",    desc: "Requires SSL to be enabled" },
                   { key: "accessLog", label: "Access Logging",    desc: "Log all requests to file" },
                   { key: "errorLog",  label: "Error Logging",     desc: "Log errors to file" },

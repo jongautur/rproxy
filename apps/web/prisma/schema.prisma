@@ -47,11 +47,18 @@ enum ProxyStatus {
 }
 
 model ProxyHost {
+  hostType String @default("PROXY") @map("host_type")
+  staticRevision String? @map("static_revision")
+  spaFallback Boolean @default(false) @map("spa_fallback")
   id            String  @id @default(cuid())
   domain        String  @unique
   forwardScheme String  @default("http") @map("forward_scheme")
   forwardHost   String  @map("forward_host")
   forwardPort   Int     @map("forward_port")
+  // Optional failover target: rendered as a `backup` server in the site's
+  // upstream block, only used by nginx while the primary is marked down.
+  backupHost    String? @map("backup_host")
+  backupPort    Int?    @map("backup_port")
   listenPort    Int     @default(80) @map("listen_port")
   httpsPort     Int     @default(443) @map("https_port")
   sslEnabled    Boolean @default(false) @map("ssl_enabled")

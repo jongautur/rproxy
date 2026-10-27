@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireSession, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { proxyHostSchema, checkSelfLoopPorts } from "@/lib/validation";
+import { proxyHostSchema, checkSelfLoopPorts, checkBackupTarget } from "@/lib/validation";
 import { updateProxy, deleteProxy, toggleProxy } from "@/server/services/proxy.service";
 import { ok, badRequest, notFound, fromError } from "@/lib/api-response";
 
@@ -44,6 +44,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const loopError = checkSelfLoopPorts([parsed.data.listenPort, parsed.data.httpsPort]);
     if (loopError) return badRequest(loopError);
+
+    // Check against the merged result, since a PATCH may set only one side.
+    const backupError = checkBackupTarget(
+      parsed.data.backupHost !== undefined ? parsed.data.backupHost : proxy.backupHost,
+      parsed.data.backupPort !== undefined ? parsed.data.backupPort : proxy.backupPort,
+    );
+    if (backupError) return badRequest(backupError);
 
     const { proxy: updated, deploy } = await updateProxy(id, parsed.data, session.id);
     return ok({ proxy: updated, nginxTest: deploy });

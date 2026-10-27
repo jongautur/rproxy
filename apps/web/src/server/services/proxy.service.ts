@@ -1,10 +1,22 @@
 import path from "path";
+import { rm } from "fs/promises";
+import { stageSite, staticSiteRoot, staticHostDirectory, StaticUploadError } from "@/server/static-sites";
+
 import { prisma } from "@/lib/prisma";
 import { generateNginxConfig, domainToFilename } from "@/server/config-generator/nginx-config";
 import { deploySiteConfig, removeSiteConfig, setSiteEnabled, type DeployResult } from "@/server/services/nginx-deploy.service";
 import { getIntegration, resolveZoneForDomain, upsertARecord, getPublicIp, deleteARecord, setRecordProxied, listZones, matchZoneForDomain, findARecord } from "@/server/services/cloudflare.service";
 import type { ProxyHostFormData } from "@/types/proxy";
 import type { ProxyHost } from "@prisma/client";
+
+const hostQueues = new Map<string, Promise<unknown>>();
+function withHostLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const result = (hostQueues.get(id) ?? Promise.resolve()).then(fn, fn);
+  const settled = result.catch(() => {});
+  hostQueues.set(id, settled);
+  void settled.then(() => { if (hostQueues.get(id) === settled) hostQueues.delete(id); });
+  return result;
+}
 
 const SITES_AVAILABLE = "/etc/nginx/sites-available";
 
@@ -99,7 +111,7 @@ async function autoDeleteDnsRecord(proxy: ProxyHost): Promise<void> {
   }
 }
 
-export async function redeployProxy(id: string): Promise<void> {
+async function redeployProxyUnlocked(id: string): Promise<void> {
   const proxy = await prisma.proxyHost.findUnique({ where: { id } });
   if (proxy) await deployConfig(proxy).catch(() => {});
 }
@@ -111,9 +123,13 @@ export async function createProxy(
   const proxy = await prisma.proxyHost.create({
     data: {
       domain: data.domain,
+      hostType: data.hostType ?? "PROXY",
+      spaFallback: data.spaFallback ?? false,
       forwardScheme: data.forwardScheme,
       forwardHost: data.forwardHost,
       forwardPort: data.forwardPort,
+      backupHost: data.backupHost ?? null,
+      backupPort: data.backupPort ?? null,
       listenPort: data.listenPort,
       httpsPort: data.httpsPort,
       sslEnabled: data.sslEnabled,
@@ -152,7 +168,7 @@ export async function createProxy(
   return { proxy, deploy, dnsRecord };
 }
 
-export async function updateProxy(
+async function updateProxyUnlocked(
   id: string,
   data: Partial<ProxyHostFormData>,
   userId: string
@@ -186,7 +202,7 @@ export async function updateProxy(
   return { proxy: updated, deploy };
 }
 
-export async function deleteProxy(id: string, userId: string): Promise<DeployResult> {
+async function deleteProxyUnlocked(id: string, userId: string): Promise<DeployResult> {
   const proxy = await prisma.proxyHost.findUniqueOrThrow({ where: { id } });
 
   // The DB record is deleted regardless of nginx cleanup succeeding — the
@@ -199,6 +215,10 @@ export async function deleteProxy(id: string, userId: string): Promise<DeployRes
   await autoDeleteDnsRecord(proxy);
 
   await prisma.proxyHost.delete({ where: { id } });
+  // Preserve content if nginx cleanup failed: its old config may still serve it.
+  if (deploy.success) {
+    await rm(staticHostDirectory(id), { recursive: true, force: true });
+  }
 
   await prisma.auditLog.create({
     data: {
@@ -213,7 +233,7 @@ export async function deleteProxy(id: string, userId: string): Promise<DeployRes
   return deploy;
 }
 
-export async function toggleProxy(
+async function toggleProxyUnlocked(
   id: string,
   enabled: boolean,
   userId: string
@@ -331,4 +351,47 @@ export async function syncCloudflareRecords(userId: string): Promise<SyncCloudfl
   });
 
   return result;
+}
+
+export function updateProxy(id: string, data: Partial<ProxyHostFormData>, userId: string) {
+  return withHostLock(id, () => updateProxyUnlocked(id, data, userId));
+}
+export function deleteProxy(id: string, userId: string) {
+  return withHostLock(id, () => deleteProxyUnlocked(id, userId));
+}
+export function toggleProxy(id: string, enabled: boolean, userId: string) {
+  return withHostLock(id, () => toggleProxyUnlocked(id, enabled, userId));
+}
+export function redeployProxy(id: string) {
+  return withHostLock(id, () => redeployProxyUnlocked(id));
+}
+
+export function uploadStaticSite(id: string, files: File[], userId: string) {
+  return withHostLock(id, async () => {
+    const proxy = await prisma.proxyHost.findUniqueOrThrow({ where: { id } });
+    if (proxy.hostType !== "STATIC") throw new StaticUploadError("Choose Static website before uploading files");
+    const revision = await stageSite(id, files);
+    const candidate = { ...proxy, staticRevision: revision };
+    // Keep the version if deployment throws: nginx might already reference it.
+    const deploy = await deployConfig(candidate);
+    if (!deploy.success) {
+      await rm(staticSiteRoot(id, revision), { recursive: true, force: true });
+      return { proxy, nginxTest: deploy };
+    }
+    try {
+      const updated = await prisma.proxyHost.update({
+        where: { id }, data: { staticRevision: revision, status: proxy.enabled ? "ACTIVE" : "DISABLED" },
+      });
+      await prisma.auditLog.create({ data: {
+        userId, action: "UPDATE", entity: "ProxyHost", entityId: id,
+        details: JSON.stringify({ staticRevision: revision, files: files.length }),
+      } });
+      return { proxy: updated, nginxTest: deploy };
+    } catch (e) {
+      // Retain both versions so a failed DB write cannot leave a live root missing.
+      await deployConfig(proxy);
+      await prisma.proxyHost.update({ where: { id }, data: { staticRevision: proxy.staticRevision } });
+      throw e;
+    }
+  });
 }

@@ -129,3 +129,56 @@ describe("domainToFilename", () => {
     expect(domainToFilename("*.example.com")).toBe("wildcard.example.com");
   });
 });
+
+describe("static websites", () => {
+  const revision = "00000000-0000-0000-0000-000000000000";
+  it("serves static files without an upstream and preserves access controls", () => {
+    const config = generateNginxConfig({
+      proxy: makeProxy({ hostType: "STATIC", staticRevision: revision }), certificate: null,
+      accessList: { id: "al1", authEnabled: true, authRealm: "Private", defaultAction: "deny", authUsers: [{ id: "u1", username: "admin" }], ipRules: [{ address: "127.0.0.1", action: "allow", sortOrder: 0 }] },
+    });
+    expect(config).toContain(`/var/lib/rproxy/static-sites/p1/${revision}`);
+    expect(config).toContain("try_files $uri $uri/ =404;");
+    expect(config).toContain("auth_basic");
+    expect(config).toContain("deny all;");
+    expect(config).toContain("disable_symlinks on;");
+    expect(config).toContain("location ~ /\\. { deny all; }");
+    expect(config).not.toContain("proxy_pass");
+    expect(config).not.toContain("upstream ");
+  });
+  it("supports SPA routing and handles empty sites", () => {
+    expect(generateNginxConfig({ proxy: makeProxy({ hostType: "STATIC", staticRevision: revision, spaFallback: true }), certificate: null })).toContain("try_files $uri $uri/ /index.html;");
+    expect(generateNginxConfig({ proxy: makeProxy({ hostType: "STATIC", staticRevision: null }), certificate: null })).toContain("return 503;");
+  });
+  it("rejects roots containing traversal or nginx injection", () => {
+    expect(() => generateNginxConfig({ proxy: makeProxy({ hostType: "STATIC", staticRevision: "../../secret" }), certificate: null })).toThrow();
+  });
+  it("keeps ACME available when Force HTTPS has no certificate", () => {
+    expect(generateNginxConfig({ proxy: makeProxy({ hostType: "STATIC", forceHttps: true }), certificate: null })).toContain("location ^~ /.well-known/acme-challenge/");
+  });
+});
+
+describe("backup upstream", () => {
+  it("renders a single plain server when no backup is set", () => {
+    const config = generateNginxConfig({ proxy: makeProxy(), certificate: null });
+    expect(config).toContain("    server 10.0.0.5:8080;\n}");
+    expect(config).not.toContain("backup;");
+    expect(config).toContain("proxy_connect_timeout 60s;");
+  });
+
+  it("adds a backup server with fast failover", () => {
+    const config = generateNginxConfig({
+      proxy: makeProxy({ backupHost: "10.0.0.6", backupPort: 8006 }), certificate: null,
+    });
+    expect(config).toContain("server 10.0.0.5:8080 max_fails=1 fail_timeout=15s;");
+    expect(config).toContain("server 10.0.0.6:8006 backup;");
+    expect(config).toContain("proxy_connect_timeout 3s;");
+    expect(config).toContain("proxy_next_upstream error timeout http_502 http_503;");
+  });
+
+  it("rejects an invalid backup host", () => {
+    expect(() => generateNginxConfig({
+      proxy: makeProxy({ backupHost: "evil; include /etc/passwd", backupPort: 80 }), certificate: null,
+    })).toThrow(/Invalid forward host/);
+  });
+});

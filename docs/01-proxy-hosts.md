@@ -10,6 +10,7 @@ A Proxy Host maps a public domain to a backend service — the core feature of r
 | **Scheme** | `http`, `https`, `grpc`, or `grpcs` — the protocol rproxy uses to talk to the backend. Default `http`. |
 | **Forward Hostname / IP** | The backend target — a hostname, IPv4 address, or `localhost`. |
 | **Forward Port** | 1–65535, required. |
+| **Backup Hostname / IP + Port** | Optional failover target, rendered as a `backup` server in the site's `upstream` block. nginx only sends traffic there while the primary is down: one failed attempt (connection error, timeout, or 502/503) marks the primary down for 15s, after which it is retried. When set, `proxy_connect_timeout` drops to 3s so failover happens quickly. Uses the same scheme as the primary. |
 | **Listen Port** | Port nginx listens on for plain HTTP. Default 80. |
 | **HTTPS Port** | Port nginx listens on when SSL is enabled. Default 443. |
 | **Enable SSL** | Turns on HTTPS — but only takes effect once a **Certificate with an actually issued cert/key** is also attached. Toggling this on without a valid certificate silently leaves the site on plain HTTP with no error. |
@@ -51,3 +52,20 @@ Treat this field as admin-only and semi-trusted — the blocklist catches the we
 
 - **DNS**: point the domain's A/AAAA record at the server's public IP. This happens automatically only if Cloudflare Auto-DNS is enabled (see [Notifications & Integrations](08-notifications-cloudflare-ddns.md)).
 - **Firewall**: allow inbound TCP on the Listen Port (default 80) and, if SSL is enabled, the HTTPS Port (default 443). Port 80 must stay reachable for HTTP-01 ACME challenges even if Force HTTPS is on.
+
+## Static websites
+
+Select **Host type → Static website** when adding or editing a host. Backend fields are replaced by **Website files**:
+
+- **HTML file** uploads one `.html` or `.htm` file and serves it as `index.html`.
+- **Website folder** uploads a folder containing `index.html` at its root, preserving subfolders and relative paths for CSS, JavaScript, images, and other assets.
+- Each upload replaces the complete site. Editing settings without selecting files keeps the current upload.
+- Enable **SPA fallback to index.html** for client-side routing. Otherwise missing paths return 404. Directory listing is disabled.
+
+Uploads allow up to 2000 files and 50 MB total. Hidden files, unsafe paths, duplicate paths, and file/folder conflicts are rejected. File and folder names may contain letters, numbers, spaces, underscores, parentheses, and `@+.,-`. An empty static host returns 503 until its first successful upload.
+
+Nginx serves files directly from `/var/lib/rproxy/static-sites/<host-id>/<revision>`. Uploads are written into a new version before nginx configuration is tested and reloaded. Failed configuration deployments preserve the previous site. Previous successful versions are retained until the host is deleted, to keep files available to nginx workers finishing requests. Deletion removes uploaded versions when nginx cleanup succeeds.
+
+HTTPS, certificates, access lists, logging, and Cloudflare DNS work as for reverse proxy hosts. Health checks probe the site's local nginx listener. Uploaded files are served as static content; server-side scripts are not executed.
+
+For an existing installation, apply the updated Prisma schema using the normal update process (`prisma db push`), rebuild, and restart the app. The static-sites directory is created by the app under the existing rproxy-owned `/var/lib/rproxy` directory; no privileged helper changes are required.

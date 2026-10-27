@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireSession, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { proxyHostSchema, checkSelfLoopPorts } from "@/lib/validation";
+import { proxyHostSchema, checkSelfLoopPorts, checkBackupTarget } from "@/lib/validation";
 import { createProxy } from "@/server/services/proxy.service";
 import { ok, created, badRequest, forbidden, fromError } from "@/lib/api-response";
 
@@ -55,13 +55,18 @@ export async function POST(req: NextRequest) {
     const session = await requireAdmin();
     const body = await req.json() as unknown;
 
-    const parsed = proxyHostSchema.safeParse(body);
+    const input = body && typeof body === "object" && "hostType" in body && body.hostType === "STATIC"
+      ? { ...body, forwardHost: "localhost", forwardPort: 80, forwardScheme: "http" } : body;
+    const parsed = proxyHostSchema.safeParse(input);
     if (!parsed.success) {
       return badRequest("Validation failed", parsed.error.flatten().fieldErrors);
     }
 
     const loopError = checkSelfLoopPorts([parsed.data.listenPort, parsed.data.httpsPort]);
     if (loopError) return badRequest(loopError);
+
+    const backupError = checkBackupTarget(parsed.data.backupHost, parsed.data.backupPort);
+    if (backupError) return badRequest(backupError);
 
     const existing = await prisma.proxyHost.findUnique({
       where: { domain: parsed.data.domain },

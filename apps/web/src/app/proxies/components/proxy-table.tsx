@@ -183,8 +183,8 @@ export function ProxyTable({ data, loading, onEdit, onRefresh, page, onPageChang
             </div>
           </div>
         </td>
-        <td className="hidden sm:table-cell px-6 py-4 text-muted-foreground">{proxy.forwardHost}</td>
-        <td className="hidden sm:table-cell px-4 py-4 text-muted-foreground">{proxy.forwardPort}</td>
+        <td className="hidden sm:table-cell px-6 py-4 text-muted-foreground">{proxy.hostType === "STATIC" ? "Static website" : proxy.forwardHost}</td>
+        <td className="hidden sm:table-cell px-4 py-4 text-muted-foreground">{proxy.hostType === "STATIC" ? "—" : proxy.forwardPort}</td>
         <td className="hidden md:table-cell px-4 py-4">
           <div className="flex items-center gap-1.5">
             {proxy.sslEnabled && <span title="SSL"><Lock className="w-3.5 h-3.5 text-success" /></span>}

@@ -71,12 +71,23 @@ export function checkSelfLoopPorts(ports: (number | undefined)[]): string | null
   return null;
 }
 
+export function checkBackupTarget(host: string | null | undefined, port: number | null | undefined): string | null {
+  if ((host == null) !== (port == null)) return "Backup host and backup port must be set together";
+  return null;
+}
+
 // ── Proxy host form ───────────────────────────────────────────────────────────
 export const proxyHostSchema = z.object({
+  hostType: z.enum(["PROXY", "STATIC"]).default("PROXY"),
+  spaFallback: z.boolean().default(false),
   domain: domainSchema,
   forwardHost: forwardHostSchema,
   forwardScheme: z.enum(["http", "https", "grpc", "grpcs"]).default("http"),
   forwardPort: portSchema,
+  // Both or neither — enforced in the route handlers (see checkBackupTarget),
+  // not via .superRefine, for the same .partial() reason as checkSelfLoopPorts.
+  backupHost: forwardHostSchema.nullable().optional(),
+  backupPort: portSchema.nullable().optional(),
   listenPort: portSchema.default(80),
   httpsPort: portSchema.default(443),
   sslEnabled: z.boolean().default(false),

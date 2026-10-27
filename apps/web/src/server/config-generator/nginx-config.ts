@@ -1,6 +1,7 @@
 import type { ProxyHost, Certificate, AccessListUser, AccessListIpRule } from "@prisma/client";
 import { isValidDomain, isValidPort, sanitizeNginxValue, validateNginxDirective } from "@/lib/validation";
 import path from "path";
+import { staticSiteRoot } from "@/server/static-sites";
 
 // All values placed into nginx config must pass through these escaping
 // functions. NEVER interpolate user input directly.
@@ -70,7 +71,10 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
 
   // ── Validate all inputs before touching config ────────────────────────────
   validateDomain(proxy.domain);
-  validateProxyTarget(proxy.forwardHost, proxy.forwardPort);
+  const isStatic = proxy.hostType === "STATIC";
+  if (!isStatic) validateProxyTarget(proxy.forwardHost, proxy.forwardPort);
+  const hasBackup = !isStatic && !!proxy.backupHost && proxy.backupPort != null;
+  if (hasBackup) validateProxyTarget(proxy.backupHost!, proxy.backupPort!);
   if (!isValidPort(proxy.listenPort)) throw new Error(`Invalid listen port: ${proxy.listenPort}`);
 
   if (proxy.customLocations && !validateNginxDirective(proxy.customLocations)) {
@@ -98,10 +102,21 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
   const lines: string[] = [];
 
   // ── Upstream ───────────────────────────────────────────────────────────────
-  lines.push(`upstream ${upstreamName} {`);
-  lines.push(`    server ${forwardHost}:${forwardPort};`);
-  lines.push(`}`);
-  lines.push(``);
+  if (!isStatic) {
+    lines.push(`upstream ${upstreamName} {`);
+    if (hasBackup) {
+      // One failed attempt marks the primary down for 15s; nginx only sends
+      // traffic to a `backup` server while every primary is down, and
+      // re-probes the primary once fail_timeout expires.
+      const backupHost = escapeNginxString(sanitizeNginxValue(proxy.backupHost!));
+      lines.push(`    server ${forwardHost}:${forwardPort} max_fails=1 fail_timeout=15s;`);
+      lines.push(`    server ${backupHost}:${proxy.backupPort} backup;`);
+    } else {
+      lines.push(`    server ${forwardHost}:${forwardPort};`);
+    }
+    lines.push(`}`);
+    lines.push(``);
+  }
 
   // ── HTTP block ─────────────────────────────────────────────────────────────
   if (sslEnabled && proxy.forceHttps) {
@@ -111,7 +126,7 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
     lines.push(`    server_name ${domain};`);
     lines.push(``);
     lines.push(`    # ACME challenge`);
-    lines.push(`    location /.well-known/acme-challenge/ {`);
+    lines.push(`    location ${isStatic ? "^~ " : ""}/.well-known/acme-challenge/ {`);
     lines.push(`        root /var/www/html;`);
     lines.push(`    }`);
     lines.push(``);
@@ -201,6 +216,14 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
     lines.push(``);
   }
 
+  if (isStatic && proxy.staticRevision) {
+    lines.push(`    root "${staticSiteRoot(proxy.id, proxy.staticRevision)}";`);
+    lines.push(`    index index.html;`);
+    lines.push(`    autoindex off;`);
+    lines.push(`    disable_symlinks on;`);
+    lines.push(`    location ~ /\\. { deny all; }`);
+  }
+
   // ── Location block ─────────────────────────────────────────────────────────
   lines.push(`    location / {`);
 
@@ -238,12 +261,20 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
 
   const isGrpc = forwardScheme === "grpc" || forwardScheme === "grpcs";
 
-  if (isGrpc) {
+  if (isStatic) {
+    lines.push(proxy.staticRevision
+      ? `        try_files $uri $uri/ ${proxy.spaFallback ? "/index.html" : "=404"};`
+      : `        return 503;`);
+  } else if (isGrpc) {
     lines.push(`        grpc_pass ${forwardScheme}://${upstreamName};`);
     lines.push(`        grpc_set_header Host $host;`);
     lines.push(`        grpc_set_header X-Real-IP $remote_addr;`);
     lines.push(`        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`);
     lines.push(`        grpc_set_header X-Forwarded-Proto $scheme;`);
+    if (hasBackup) {
+      lines.push(`        grpc_connect_timeout 3s;`);
+      lines.push(`        grpc_next_upstream error timeout http_502 http_503;`);
+    }
     if (forwardScheme === "grpcs") {
       lines.push(``);
       lines.push(`        grpc_ssl_verify off;`);
@@ -274,7 +305,14 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
     lines.push(``);
     lines.push(`        proxy_buffering off;`);
     lines.push(`        proxy_request_buffering off;`);
-    lines.push(`        proxy_connect_timeout 60s;`);
+    if (hasBackup) {
+      // A short connect timeout so a dead primary fails over in seconds
+      // rather than hanging the client for the default 60s first.
+      lines.push(`        proxy_connect_timeout 3s;`);
+      lines.push(`        proxy_next_upstream error timeout http_502 http_503;`);
+    } else {
+      lines.push(`        proxy_connect_timeout 60s;`);
+    }
     lines.push(`        proxy_send_timeout 60s;`);
     lines.push(`        proxy_read_timeout 60s;`);
     if (forwardScheme === "https") {
@@ -290,7 +328,7 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
   }
 
   // ── Custom headers (validated key=value pairs) ────────────────────────────
-  if (proxy.customHeaders) {
+  if (!isStatic && proxy.customHeaders) {
     let headers: Record<string, string> = {};
     try {
       headers = JSON.parse(proxy.customHeaders) as Record<string, string>;
@@ -322,8 +360,8 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
   lines.push(``);
 
   // ── ACME challenge location (keep even without force-https) ───────────────
-  if (!proxy.forceHttps) {
-    lines.push(`    location /.well-known/acme-challenge/ {`);
+  if (!(sslEnabled && proxy.forceHttps)) {
+    lines.push(`    location ${isStatic ? "^~ " : ""}/.well-known/acme-challenge/ {`);
     lines.push(`        root /var/www/html;`);
     lines.push(`    }`);
     lines.push(``);

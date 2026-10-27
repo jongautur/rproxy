@@ -1,10 +1,14 @@
 import type { ProxyHost, Certificate, ProxyStatus } from "@prisma/client";
 
 export interface ProxyHostFormData {
+  hostType?: "PROXY" | "STATIC";
+  spaFallback?: boolean;
   domain: string;
   forwardScheme: "http" | "https" | "grpc" | "grpcs";
   forwardHost: string;
   forwardPort: number;
+  backupHost?: string | null;
+  backupPort?: number | null;
   listenPort: number;
   httpsPort: number;
   sslEnabled: boolean;

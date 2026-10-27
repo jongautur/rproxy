@@ -92,6 +92,17 @@ function runNginxT(body: string): { code: number; output: string } {
 }
 
 describe.skipIf(!nginxAvailable)("nginx config integration", () => {
+  it.each([false, true])("generates a static host config with SPA fallback %s that passes nginx -t", spaFallback => {
+    const proxy = {
+      id: "static1", domain: "static.example.com", hostType: "STATIC",
+      staticRevision: "00000000-0000-0000-0000-000000000000", spaFallback,
+      listenPort: 18081, httpsPort: 18444, sslEnabled: false, forceHttps: true,
+      forwardHost: "localhost", forwardPort: 80, forwardScheme: "http",
+      accessLog: false, errorLog: false,
+    } as ProxyHost;
+    const result = runNginxT(generateNginxConfig({ proxy, certificate: null }));
+    expect(result.code, result.output).toBe(0);
+  });
   it("generates a proxy host config that passes `nginx -t`", () => {
     const proxy = {
       id: "p1",
@@ -121,6 +132,17 @@ describe.skipIf(!nginxAvailable)("nginx config integration", () => {
 
     const config = generateNginxConfig({ proxy, certificate: null });
     const result = runNginxT(config);
+    expect(result.code, result.output).toBe(0);
+  });
+
+  it.each(["http", "https", "grpc"])("generates a %s proxy host with a backup server that passes nginx -t", forwardScheme => {
+    const proxy = {
+      id: "p2", domain: "failover.example.com", hostType: "PROXY", forwardScheme,
+      forwardHost: "127.0.0.1", forwardPort: 8080, backupHost: "127.0.0.2", backupPort: 8080,
+      listenPort: 18082, httpsPort: 18445, sslEnabled: false, forceHttps: false,
+      http2: false, websocket: true, accessLog: false, errorLog: false,
+    } as ProxyHost;
+    const result = runNginxT(generateNginxConfig({ proxy, certificate: null }));
     expect(result.code, result.output).toBe(0);
   });
 
