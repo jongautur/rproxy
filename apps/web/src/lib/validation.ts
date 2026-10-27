@@ -394,3 +394,31 @@ export function isValidPort(port: number): boolean {
 export function isValidDomain(domain: string): boolean {
   return DOMAIN_REGEX.test(domain);
 }
+
+// ── Stream host form ──────────────────────────────────────────────────────────
+// Shared by the REST routes and the MCP tools (server/mcp/tools.ts).
+export const streamHostSchema = z.object({
+  name: z.string().min(1).max(64).regex(/^[a-zA-Z0-9 _-]+$/, "Name may only contain letters, numbers, spaces, _ and -"),
+  protocol: z.enum(["TCP", "UDP", "TCP_UDP"]).default("TCP"),
+  listenPort: z.number().int().min(1).max(65535),
+  forwardHost: z.string().min(1).max(253),
+  forwardPort: z.number().int().min(1).max(65535),
+  accessListId: z.string().cuid().nullable().optional(),
+});
+
+export const streamHostPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  protocol: z.enum(["TCP", "UDP", "TCP_UDP"]).optional(),
+  listenPort: z.number().int().min(1).max(65535).optional(),
+  forwardHost: z.string().min(1).max(253).optional(),
+  forwardPort: z.number().int().min(1).max(65535).optional(),
+  accessListId: z.string().cuid().nullable().optional(),
+});
+
+// ── MCP token form ────────────────────────────────────────────────────────────
+export const mcpTokenCreateSchema = z.object({
+  name: z.string().trim().min(1).max(64),
+  scope: z.enum(["READ", "WRITE"]).default("READ"),
+  // Omitted = never expires.
+  expiresInDays: z.number().int().min(1).max(3650).optional(),
+});

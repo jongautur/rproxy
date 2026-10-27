@@ -34,8 +34,46 @@ model User {
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   auditLogs AuditLog[]
+  mcpTokens McpToken[]
 
   @@map("users")
+}
+
+// ── MCP access tokens ─────────────────────────────────────────────────────────
+
+enum McpTokenScope {
+  READ
+  WRITE
+}
+
+// Bearer tokens for the /api/mcp endpoint, so remote agents can drive rproxy
+// without a browser session. Same storage model as ApiKey (SHA-256 of a
+// high-entropy generated secret, plaintext shown once) — see lib/api-key.ts
+// for why not bcrypt. A token always acts AS its user: the user's current
+// DB role is re-checked on every request, so a WRITE token held by a user
+// later demoted to VIEWER stops being able to write.
+model McpToken {
+  id           String        @id @default(cuid())
+  userId       String        @map("user_id")
+  name         String
+  tokenPrefix  String        @unique @map("token_prefix")
+  tokenHash    String        @unique @map("token_hash")
+  scope        McpTokenScope @default(READ)
+  // Snapshot of User.tokenVersion at creation. Bumping the user's
+  // tokenVersion (password/role change, forced logout) invalidates every
+  // MCP token they hold, same as their JWTs.
+  tokenVersion Int           @map("token_version")
+  expiresAt    DateTime?     @map("expires_at")
+  // Written at most once a minute per token (see mcp-token.service.ts) —
+  // MCP traffic is agent-paced, not per-proxied-request like ApiKey.
+  lastUsedAt   DateTime?     @map("last_used_at")
+  revokedAt    DateTime?     @map("revoked_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mcp_tokens")
 }
 
 // ── Proxy Hosts ───────────────────────────────────────────────────────────────

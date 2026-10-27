@@ -3,17 +3,7 @@ import { requireAdmin, requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { updateStream, deleteStream, toggleStream } from "@/server/services/stream.service";
 import { ok, badRequest, notFound, fromError } from "@/lib/api-response";
-import { checkSelfLoopPorts } from "@/lib/validation";
-import { z } from "zod";
-
-const patchSchema = z.object({
-  enabled: z.boolean().optional(),
-  protocol: z.enum(["TCP", "UDP", "TCP_UDP"]).optional(),
-  listenPort: z.number().int().min(1).max(65535).optional(),
-  forwardHost: z.string().min(1).max(253).optional(),
-  forwardPort: z.number().int().min(1).max(65535).optional(),
-  accessListId: z.string().cuid().nullable().optional(),
-});
+import { checkSelfLoopPorts, streamHostPatchSchema } from "@/lib/validation";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -36,7 +26,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return ok({ stream, nginxTest: deploy });
     }
 
-    const parsed = patchSchema.safeParse(body);
+    const parsed = streamHostPatchSchema.safeParse(body);
     if (!parsed.success) return badRequest(parsed.error.errors[0]?.message ?? "Invalid input");
 
     const loopError = checkSelfLoopPorts([parsed.data.listenPort]);

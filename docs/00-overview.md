@@ -18,6 +18,7 @@ This directory documents what the app does and how to operate it. For installing
 | [Notifications & Integrations](08-notifications-cloudflare-ddns.md) | Alert channels, the Cloudflare integration, and Dynamic DNS. |
 | [System, Logs & Backups](09-system-logs-backup.md) | The system dashboard, health checks, log viewing/retention, and backup/export. |
 | [Installation & Operations](10-installation-and-operations.md) | How the app actually runs day to day, updating, cron jobs, environment variables, and the security model. |
+| [MCP Server](11-mcp-server.md) | Let AI agents on other machines read and change rproxy config over the Model Context Protocol, using per-user read or write tokens. |
 
 ## Who can do what
 

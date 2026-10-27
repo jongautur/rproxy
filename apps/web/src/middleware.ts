@@ -40,8 +40,9 @@ const CSRF_EXEMPT_PREFIXES = ["/api/cron/"];
 // /api/gateway/rotate are the same shape of exemption for a different
 // caller: sleik.is's backend, authenticated by GATEWAY_SIGNUP_SECRET instead
 // (see app/api/gateway/signup/route.ts) — they carry no session cookie
-// either.
-const CSRF_EXEMPT_EXACT = new Set(["/api/gateway/auth-check", "/api/gateway/signup", "/api/gateway/rotate"]);
+// either. /api/mcp is the remote MCP endpoint, authenticated by an MCP
+// bearer token in the route handler (see app/api/mcp/route.ts).
+const CSRF_EXEMPT_EXACT = new Set(["/api/gateway/auth-check", "/api/gateway/signup", "/api/gateway/rotate", "/api/mcp"]);
 
 function isCsrfExemptPath(pathname: string): boolean {
   return CSRF_EXEMPT_EXACT.has(pathname) || CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
