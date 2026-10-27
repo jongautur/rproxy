@@ -4,6 +4,9 @@ All notable changes to rproxy are documented here.
 
 ## [Unreleased]
 
+### Added
+- **MCP server** at `/api/mcp` (Streamable HTTP) so AI agents on other machines can list and create/update proxy hosts, redirects, streams, certificates and API Gateway routes. Authenticated by per-user `rpm_` bearer tokens (read or write, optional expiry, revocable) managed under Settings → MCP. Writes go through the existing services and nginx deploy transaction; nothing can be deleted over MCP. See [docs/11-mcp-server.md](docs/11-mcp-server.md).
+
 ## [1.1.0] — 2026-07-16
 
 ### Added

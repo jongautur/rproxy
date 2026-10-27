@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Settings, Users, Key, Download, Database, HardDrive,
-  Plus, Trash2, Loader2, CheckCircle2, ShieldCheck, ShieldOff, User, Bell, Globe, Webhook, FileWarning, Network, CloudCog,
+  Plus, Trash2, Loader2, CheckCircle2, ShieldCheck, ShieldOff, User, Bell, Globe, Webhook, FileWarning, Network, CloudCog, Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { NotificationsTab } from "./notifications-tab";
 import { CloudflareTab } from "./cloudflare-tab";
+import { McpTab } from "./mcp-tab";
 import { TotpCard } from "./totp-card";
 
 interface AppUser {
@@ -439,6 +440,10 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
             <CloudCog className="w-4 h-4" />
             Cloudflare
           </TabsTrigger>
+          <TabsTrigger value="mcp" className="gap-2">
+            <Bot className="w-4 h-4" />
+            MCP
+          </TabsTrigger>
           {!loading && data && (
             <TabsTrigger value="users" className="gap-2">
               <Users className="w-4 h-4" />
@@ -645,6 +650,10 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
 
         <TabsContent value="cloudflare">
           <CloudflareTab />
+        </TabsContent>
+
+        <TabsContent value="mcp">
+          <McpTab isAdmin={profile?.role === "ADMIN"} />
         </TabsContent>
 
         <TabsContent value="nginx" className="space-y-6">
