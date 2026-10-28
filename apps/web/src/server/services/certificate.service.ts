@@ -4,7 +4,7 @@ import { encryptJson } from "@/lib/encrypt";
 import { reloadNginx } from "@/server/system/nginx";
 import {
   issueCertificate, renewCertificate, revokeCertificate,
-  parseCertInfo, getCertPaths,
+  parseCertInfo, getCertPaths, hasSavedDnsCredentials,
 } from "@/server/system/acme";
 import {
   getIntegration, resolveZoneForDomain, upsertARecord, getPublicIp, waitForDnsPropagation,
@@ -56,6 +56,21 @@ export async function createCertificate(
   data: CertificateFormData,
   userId: string
 ): Promise<{ certificate: Certificate; output: string; dnsRecord?: DnsRecordResult }> {
+  // Blank values mean "not provided"; with none left, acme.sh falls back to
+  // the credentials it saved for this provider on an earlier issue.
+  const dnsCredentials = Object.fromEntries(
+    Object.entries(data.dnsCredentials ?? {}).filter(([, v]) => v.trim() !== "")
+  );
+  const hasDnsCredentials = Object.keys(dnsCredentials).length > 0;
+
+  if (
+    data.provider === "LETSENCRYPT" && data.challengeType === "DNS" &&
+    data.dnsProvider && data.dnsProvider !== "dns_manual" &&
+    !hasDnsCredentials && !(await hasSavedDnsCredentials(data.dnsProvider))
+  ) {
+    throw new Error(`No saved credentials for ${data.dnsProvider} — enter them to issue this certificate`);
+  }
+
   const cert = await prisma.certificate.create({
     data: {
       domain: data.domain,
@@ -63,7 +78,7 @@ export async function createCertificate(
       challengeType: data.challengeType,
       status: "PENDING",
       dnsProvider: data.dnsProvider,
-      dnsCredentials: data.dnsCredentials ? encryptJson(data.dnsCredentials as Record<string, string>) : undefined,
+      dnsCredentials: hasDnsCredentials ? encryptJson(dnsCredentials) : undefined,
       autoRenew: data.autoRenew,
     },
   });
@@ -77,10 +92,7 @@ export async function createCertificate(
 
   const email = data.email;
   if (!email) throw new Error("Email is required for Let's Encrypt certificates");
-  let dnsEnv: Record<string, string> | undefined;
-  if (data.dnsCredentials) {
-    dnsEnv = data.dnsCredentials as Record<string, string>;
-  }
+  const dnsEnv = hasDnsCredentials ? dnsCredentials : undefined;
 
   const dns = await ensureDnsRecordForCert(data.domain, data.challengeType);
 

@@ -19,7 +19,9 @@ The simple path — no DNS provider credentials needed. Requirements, stated dir
 
 ### DNS Challenge
 
-Needed for wildcard certificates (`*.example.com` can't use HTTP-01 at all) or when port 80 can't be exposed. Pick a DNS provider and supply its API credentials — these are entered fresh each time you issue and are **not** the same thing as the Cloudflare integration under Settings (see below).
+Needed for wildcard certificates (`*.example.com` can't use HTTP-01 at all) or when port 80 can't be exposed. Pick a DNS provider and supply its API credentials. These are **not** the same thing as the Cloudflare integration under Settings (see below).
+
+**Saved credentials.** After a successful issue, acme.sh saves the provider's credentials in `~/.acme.sh/account.conf` of the `rproxy` user, and every renewal for that provider reads them from there. Credentials rproxy stores in its own database are never used for renewal. When saved credentials exist for the selected provider, the dialog shows **Use saved credentials** (on by default), so you can issue a new wildcard without re-entering the token. Turn it off to enter new ones. New credentials **replace** the saved ones for every certificate of that provider, so a Cloudflare token scoped to a single zone would break renewal of wildcards in other zones. Use one token covering all zones (Zone → DNS → Edit, Zone → Zone → Read, "All zones from an account"). The dialog only ever learns *whether* credentials are saved, never their values.
 
 **Currently only these providers have credential fields in the UI**: Cloudflare, AWS Route53, GoDaddy, DigitalOcean, OVH. Namecheap, Vultr, Linode, and DuckDNS appear in the dropdown but the UI doesn't yet collect the credentials they need — issuance through those will fail. Use HTTP-01 instead if your domain supports it. "Manual DNS-01" is also listed but isn't fully wired up for an unattended flow (there's no pause-and-prompt step) — avoid it outside testing.
 

@@ -20,6 +20,43 @@ const VALID_DNS_PROVIDERS = new Set([
   "dns_manual",   // Manual DNS (interactive, for testing)
 ]);
 
+// Credential keys each DNS plugin saves to account.conf after a successful
+// issue. On later runs the plugin falls back to the saved value when the env
+// var is unset, so an issue with no credentials reuses the saved ones.
+const SAVED_CREDENTIAL_KEYS: Record<string, string[]> = {
+  dns_cf:           ["CF_Token"],
+  dns_aws:          ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+  dns_gd:           ["GD_Key", "GD_Secret"],
+  dns_digitalocean: ["DO_API_KEY"],
+  dns_ovh:          ["OVH_AK", "OVH_AS", "OVH_CK"],
+};
+
+function accountConfPath(): string {
+  return path.join(process.env.HOME ?? "/root", ".acme.sh/account.conf");
+}
+
+// True if every credential key for the provider has a non-empty value in the
+// given account.conf content. Plugins write either `SAVED_<KEY>='…'`
+// (_saveaccountconf_mutable) or plain `<KEY>='…'` (older _saveaccountconf).
+export function hasSavedKeys(confContent: string, keys: readonly string[]): boolean {
+  return keys.every((key) =>
+    new RegExp(`^(?:SAVED_)?${key}=(?!''$|""$|$).+$`, "m").test(confContent)
+  );
+}
+
+// Reports whether acme.sh holds saved credentials for this provider. Never
+// returns the values themselves.
+export async function hasSavedDnsCredentials(provider: string): Promise<boolean> {
+  const keys = SAVED_CREDENTIAL_KEYS[provider];
+  if (!keys) return false;
+  try {
+    return hasSavedKeys(await readFile(accountConfPath(), "utf8"), keys);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw e;
+  }
+}
+
 async function setAcmeEmail(email: string): Promise<void> {
   // Restrict to characters safe for a bash single-quoted config value.
   // Single quotes cannot appear inside a bash single-quoted string, so we reject
@@ -27,7 +64,7 @@ async function setAcmeEmail(email: string): Promise<void> {
   if (!/^[a-zA-Z0-9._%+@-]+$/.test(email)) {
     throw new Error("Email contains characters not allowed in acme.sh config");
   }
-  const confPath = path.join(process.env.HOME ?? "/root", ".acme.sh/account.conf");
+  const confPath = accountConfPath();
   try {
     let content = await readFile(confPath, "utf8");
     if (content.includes("ACCOUNT_EMAIL=")) {
