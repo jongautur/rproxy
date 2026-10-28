@@ -77,15 +77,36 @@ export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }:
   const [challengeType, setChallengeType] = useState<"HTTP" | "DNS">("HTTP");
   const [dnsProvider, setDnsProvider] = useState("dns_cf");
   const [dnsEnv, setDnsEnv] = useState<Record<string, string>>({});
+  // Whether acme.sh already holds credentials for the selected provider
+  // (null while unknown), and whether to reuse them instead of entering new ones.
+  const [savedCreds, setSavedCreds] = useState<boolean | null>(null);
+  const [useSavedCreds, setUseSavedCreds] = useState(true);
   const [autoRenew, setAutoRenew] = useState(true);
   const [issuing, setIssuing] = useState(false);
   const [result, setResult] = useState<IssueResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  useEffect(() => {
+    if (!open || challengeType !== "DNS" || !DNS_ENV_HINTS[dnsProvider]) {
+      setSavedCreds(null);
+      return;
+    }
+    let cancelled = false;
+    setSavedCreds(null);
+    setUseSavedCreds(true);
+    fetch(`/api/certificates/dns-credentials?provider=${encodeURIComponent(dnsProvider)}`)
+      .then((res) => res.json() as Promise<{ success: boolean; data?: { saved: boolean } }>)
+      .then((json) => { if (!cancelled) setSavedCreds(json.success && !!json.data?.saved); })
+      .catch(() => { if (!cancelled) setSavedCreds(false); });
+    return () => { cancelled = true; };
+  }, [open, challengeType, dnsProvider]);
+
+  const usingSavedCreds = savedCreds === true && useSavedCreds;
+
   function reset() {
     setDomain(""); setEmail("");
     setChallengeType("HTTP"); setDnsProvider("dns_cf");
-    setDnsEnv({}); setAutoRenew(true);
+    setDnsEnv({}); setUseSavedCreds(true); setAutoRenew(true);
     setIssuing(false); setResult(null); setErrors({});
   }
 
@@ -98,7 +119,7 @@ export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }:
     const e: Record<string, string> = {};
     if (!domain.trim()) e.domain = "Domain is required";
     if (!email.trim()) e.email = "Email is required";
-    if (challengeType === "DNS" && dnsProvider !== "dns_manual") {
+    if (challengeType === "DNS" && dnsProvider !== "dns_manual" && !usingSavedCreds) {
       const required = DNS_ENV_HINTS[dnsProvider] ?? [];
       for (const hint of required) {
         if (!dnsEnv[hint.key]?.trim()) {
@@ -122,7 +143,7 @@ export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }:
           challengeType,
           email: email.trim(),
           dnsProvider: challengeType === "DNS" ? dnsProvider : undefined,
-          dnsCredentials: challengeType === "DNS" && Object.keys(dnsEnv).length > 0 ? dnsEnv : undefined,
+          dnsCredentials: challengeType === "DNS" && !usingSavedCreds && Object.keys(dnsEnv).length > 0 ? dnsEnv : undefined,
           autoRenew,
         }),
       });
@@ -226,7 +247,17 @@ export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }:
                   </Select>
                 </div>
 
-                {hints.length > 0 && (
+                {savedCreds && (
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-accent/20">
+                    <div>
+                      <p className="text-sm font-medium">Use saved credentials</p>
+                      <p className="text-xs text-muted-foreground">Reuse the credentials already saved for this provider</p>
+                    </div>
+                    <Switch checked={useSavedCreds} onCheckedChange={setUseSavedCreds} disabled={issuing} />
+                  </div>
+                )}
+
+                {hints.length > 0 && !usingSavedCreds && (
                   <div className="space-y-2">
                     {hints.map((hint) => (
                       <div key={hint.key} className="space-y-1">
@@ -243,7 +274,9 @@ export function IssueCertDialog({ open, onOpenChange, onIssued, defaultDomain }:
                       </div>
                     ))}
                     <p className="text-xs text-muted-foreground">
-                      Credentials are used only for this request and not stored in plaintext.
+                      {savedCreds
+                        ? "These replace the saved credentials, so every certificate renewed with this provider will use them."
+                        : "Saved after issuing, so later certificates for this provider can reuse them."}
                     </p>
                   </div>
                 )}
