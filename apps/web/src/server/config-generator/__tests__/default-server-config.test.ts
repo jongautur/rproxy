@@ -47,4 +47,17 @@ describe("generateDefaultServerConfig", () => {
     // Same behavior on both ports, not just port 80.
     expect((config.match(/return 444;/g) ?? []).length).toBe(2);
   });
+
+  it("writes each access log exactly once per server block (a repeated access_log logs every request twice)", () => {
+    for (const hasCert of [false, true]) {
+      const config = generateDefaultServerConfig({ mode: "no_response", hasCert });
+      const blocks = config.split(/^server \{$/m).slice(1);
+      expect(blocks).toHaveLength(hasCert ? 2 : 1);
+      for (const block of blocks) {
+        const logs = block.match(/^\s*access_log .*$/gm) ?? [];
+        expect(new Set(logs).size).toBe(logs.length);
+        expect(logs.some(l => l.includes("rproxy-json-access.log"))).toBe(true);
+      }
+    }
+  });
 });
