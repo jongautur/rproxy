@@ -8,6 +8,9 @@ All notable changes to rproxy are documented here.
 - **MCP server** at `/api/mcp` (Streamable HTTP) so AI agents on other machines can list and create/update proxy hosts, redirects, streams, certificates and API Gateway routes. Authenticated by per-user `rpm_` bearer tokens (read or write, optional expiry, revocable) managed under Settings → MCP. Writes go through the existing services and nginx deploy transaction; nothing can be deleted over MCP. See [docs/11-mcp-server.md](docs/11-mcp-server.md).
 - **Structured JSON access log** — every generated server block (proxy, static, API Gateway, default server) now also writes `/var/log/nginx/rproxy-json-access.log` in the `rproxy_json` format, one JSON object per request, ready for Fluent Bit/Vector/etc. Never contains query strings (`$uri`, referer cut at `?`). The format lives in `scripts/nginx/rproxy-json-log.conf`, installed to `/etc/nginx/conf.d/` by `setup.sh` — **existing installs must re-run `setup.sh` as root before updating**, or host deploys fail `nginx -t`.
 
+### Fixed
+- Hosts with per-domain access logging turned off logged **nothing**, not even to the shared `all-access.log` (and the Logs page / traffic stats never saw them), and the default server never logged either. The generator emitted `access_log off;` next to the shared `access_log` lines, and in nginx `off` cancels every `access_log` on the same level. It now simply omits the per-domain line.
+
 ## [1.1.0] — 2026-07-16
 
 ### Added

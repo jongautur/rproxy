@@ -83,7 +83,6 @@ export function generateDefaultServerConfig(opts: {
   lines.push(`    listen [::]:80 default_server;`);
   lines.push(`    server_name _;`);
   lines.push(``);
-  lines.push(`    access_log off;`);
   lines.push(`    access_log /var/log/nginx/all-access.log;`);
   lines.push(`    ${JSON_ACCESS_LOG}`);
   lines.push(``);
@@ -103,8 +102,7 @@ export function generateDefaultServerConfig(opts: {
     lines.push(`    listen [::]:443 ssl default_server;`);
     lines.push(`    server_name _;`);
     lines.push(``);
-    lines.push(`    access_log off;`);
-    lines.push(`    access_log /var/log/nginx/all-access.log;`);
+      lines.push(`    access_log /var/log/nginx/all-access.log;`);
     lines.push(`    ${JSON_ACCESS_LOG}`);
   lines.push(`    ${JSON_ACCESS_LOG}`);
     lines.push(`    ssl_certificate ${DEFAULT_CERT_FILE};`);

@@ -158,10 +158,11 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
   lines.push(``);
 
   // ── Logging ────────────────────────────────────────────────────────────────
+  // No `access_log off;` when the per-domain log is disabled: "off" cancels
+  // every access_log at this level, including the shared ones below. Any
+  // server-level access_log already stops the http-level one inheriting.
   if (proxy.accessLog) {
     lines.push(`    access_log /var/log/nginx/${domainToFilename(domain)}.access.log;`);
-  } else {
-    lines.push(`    access_log off;`);
   }
   lines.push(`    access_log /var/log/nginx/all-access.log;`);
   lines.push(`    ${JSON_ACCESS_LOG}`);
