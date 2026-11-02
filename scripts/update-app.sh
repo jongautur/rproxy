@@ -34,6 +34,14 @@ if ! git diff --quiet "$OLD_HEAD" "$NEW_HEAD" -- scripts/nginx-config-helper.sh;
   echo "         'sudo bash $APP_ROOT/scripts/setup.sh' as root to refresh it." >&2
 fi
 
+# Every generated server block references the rproxy_json log_format; a
+# missing or stale conf.d copy makes nginx -t (and so every deploy) fail.
+if ! cmp -s "$APP_ROOT/scripts/nginx/rproxy-json-log.conf" /etc/nginx/conf.d/rproxy-json-log.conf; then
+  echo "WARNING: /etc/nginx/conf.d/rproxy-json-log.conf is missing or out of date." >&2
+  echo "         Host deploys fail nginx -t until it is installed. Run" >&2
+  echo "         'sudo bash $APP_ROOT/scripts/setup.sh' as root to install it." >&2
+fi
+
 cd "$APP_DIR"
 # See install-app.sh — lower concurrency avoids OOM-killing the install on
 # small VPS/LXC boxes when several large native binaries download/extract

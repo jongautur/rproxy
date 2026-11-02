@@ -238,6 +238,13 @@ as_root ln -sf /etc/nginx/sites-available/_default.conf /etc/nginx/sites-enabled
 as_root rm -f /etc/nginx/sites-available/acme-challenge /etc/nginx/sites-enabled/acme-challenge
 
 as_root mkdir -p /etc/nginx/stream.d
+
+# rproxy_json log_format for the structured access log every generated
+# server block writes (/var/log/nginx/rproxy-json-access.log). Must exist
+# before the app deploys any site — nginx -t fails on an unknown format.
+as_root install -o root -g root -m 0644 \
+  /opt/rproxy/scripts/nginx/rproxy-json-log.conf /etc/nginx/conf.d/rproxy-json-log.conf
+
 as_root systemctl enable nginx
 as_root nginx -t && as_root systemctl reload nginx
 success "Nginx configured"

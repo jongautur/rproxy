@@ -120,6 +120,16 @@ describe("generateNginxConfig — custom directive validation", () => {
   });
 });
 
+describe("generateNginxConfig — JSON access log", () => {
+  it("writes the rproxy_json access log even when the per-domain access log is off", () => {
+    for (const accessLog of [true, false]) {
+      const config = generateNginxConfig({ proxy: makeProxy({ accessLog }), certificate: null });
+      expect(config).toContain("access_log /var/log/nginx/rproxy-json-access.log rproxy_json;");
+      expect(config).toContain("access_log /var/log/nginx/all-access.log;");
+    }
+  });
+});
+
 describe("domainToFilename", () => {
   it("rejects path traversal attempts", () => {
     expect(() => domainToFilename("../../etc/passwd")).toThrow();

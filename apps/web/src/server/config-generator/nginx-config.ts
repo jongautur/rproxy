@@ -3,6 +3,12 @@ import { isValidDomain, isValidPort, sanitizeNginxValue, validateNginxDirective 
 import path from "path";
 import { staticSiteRoot } from "@/server/static-sites";
 
+// Structured JSON access log every generated server block writes, next to
+// all-access.log. The rproxy_json log_format is defined in
+// /etc/nginx/conf.d/rproxy-json-log.conf, installed by scripts/setup.sh from
+// scripts/nginx/rproxy-json-log.conf — nginx -t fails without it.
+export const JSON_ACCESS_LOG = "access_log /var/log/nginx/rproxy-json-access.log rproxy_json;";
+
 // All values placed into nginx config must pass through these escaping
 // functions. NEVER interpolate user input directly.
 
@@ -158,6 +164,7 @@ export function generateNginxConfig(opts: GeneratorOptions): string {
     lines.push(`    access_log off;`);
   }
   lines.push(`    access_log /var/log/nginx/all-access.log;`);
+  lines.push(`    ${JSON_ACCESS_LOG}`);
   if (proxy.errorLog) {
     lines.push(`    error_log /var/log/nginx/${domainToFilename(domain)}.error.log;`);
   }
