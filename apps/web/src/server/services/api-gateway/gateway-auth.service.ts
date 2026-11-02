@@ -19,9 +19,19 @@ export type DenyReason = "forbidden" | "rate_limited" | "quota_exceeded";
 // out of the per-customer breakdown and surfaces it in totals/per-API only.
 export const UNAUTHENTICATED_CUSTOMER_ID = "unauthenticated";
 
+// Who a resolved key belongs to — returned on allow AND deny so nginx can
+// put it in the gateway access log (api-gateway-config.ts). Never contains
+// the key itself: keyPrefix is the stored, non-secret display prefix.
+export interface KeyIdentity {
+  customerId: string;
+  customerName: string;
+  keyId: string;
+  keyPrefix: string;
+}
+
 export type AccessCheckResult =
-  | { ok: true; customerId: string; rateLimit?: number; rateRemaining?: number }
-  | { ok: false; status: 401 | 403; denyReason?: DenyReason; rateLimit?: number; rateRemaining?: number };
+  | { ok: true; customerId: string; identity: KeyIdentity; rateLimit?: number; rateRemaining?: number }
+  | { ok: false; status: 401 | 403; identity?: KeyIdentity; denyReason?: DenyReason; rateLimit?: number; rateRemaining?: number };
 
 function isExpired(expiresAt: Date | null): boolean {
   return !!expiresAt && expiresAt.getTime() <= Date.now();
@@ -225,21 +235,28 @@ export async function checkAccess(
     return { ok: false, status: 401 };
   }
 
+  const identity: KeyIdentity = {
+    customerId: apiKey.customerId,
+    customerName: apiKey.customer.name,
+    keyId: apiKey.id,
+    keyPrefix: apiKey.keyPrefix,
+  };
+
   if (!apiKey.enabled || apiKey.revokedAt || isExpired(apiKey.expiresAt)) {
     recordUsage(apiKey.customerId, apiId, routeId, apiKey.id, "denied");
-    return { ok: false, status: 403, denyReason: "forbidden" };
+    return { ok: false, status: 403, denyReason: "forbidden", identity };
   }
 
   // A property of the key itself, cheapest check to run first since the
   // data's already loaded — see isRouteInScope's doc comment.
   if (!isRouteInScope(apiKey, routeId, method)) {
     recordUsage(apiKey.customerId, apiId, routeId, apiKey.id, "denied");
-    return { ok: false, status: 403, denyReason: "forbidden" };
+    return { ok: false, status: 403, denyReason: "forbidden", identity };
   }
 
   if (!apiKey.customer.enabled) {
     recordUsage(apiKey.customerId, apiId, routeId, apiKey.id, "denied");
-    return { ok: false, status: 403, denyReason: "forbidden" };
+    return { ok: false, status: 403, denyReason: "forbidden", identity };
   }
 
   const apiAccess = await prisma.apiAccess.findUnique({
@@ -247,7 +264,7 @@ export async function checkAccess(
   });
   if (!apiAccess || !apiAccess.enabled || isExpired(apiAccess.expiresAt)) {
     recordUsage(apiKey.customerId, apiId, routeId, apiKey.id, "denied");
-    return { ok: false, status: 403, denyReason: "forbidden" };
+    return { ok: false, status: 403, denyReason: "forbidden", identity };
   }
 
   // A route-level override row can ITSELF deny this specific route even
@@ -259,7 +276,7 @@ export async function checkAccess(
   });
   if (routeAccess && (!routeAccess.enabled || isExpired(routeAccess.expiresAt))) {
     recordUsage(apiKey.customerId, apiId, routeId, apiKey.id, "denied");
-    return { ok: false, status: 403, denyReason: "forbidden" };
+    return { ok: false, status: 403, denyReason: "forbidden", identity };
   }
 
   const limits = resolveEffectiveLimits(apiId, routeId, apiAccess, routeAccess);
@@ -270,6 +287,7 @@ export async function checkAccess(
     return {
       ok: false,
       status: 403,
+      identity,
       denyReason: rateQuotaResult.reason,
       rateLimit: rateQuotaResult.limit,
       rateRemaining: rateQuotaResult.remaining,
@@ -280,6 +298,7 @@ export async function checkAccess(
   return {
     ok: true,
     customerId: apiKey.customerId,
+    identity,
     rateLimit: rateQuotaResult.limit,
     rateRemaining: rateQuotaResult.remaining,
   };

@@ -6,7 +6,7 @@ import type { Api, ApiRoute, Certificate } from "@prisma/client";
 // upstreamAuthType is NONE, or decryption failed for this route.
 export type ApiRouteWithAuth = ApiRoute & { upstreamAuthValue: string | null };
 import { isValidDomain, isValidPort, sanitizeNginxValue, getAppPort } from "@/lib/validation";
-import { domainToFilename, JSON_ACCESS_LOG } from "@/server/config-generator/nginx-config";
+import { domainToFilename, JSON_ACCESS_LOG_PATH, JSON_LOG_FIELDS } from "@/server/config-generator/nginx-config";
 import { zoneNameForRoute, zoneNameForDocs, DEFAULT_BURST } from "@/server/config-generator/api-gateway-zones-config";
 import path from "path";
 
@@ -105,6 +105,23 @@ location @gw_403 {
     return 403 '{"success":false,"error":"Forbidden"}';
 }`;
 
+// Who made a gateway request, filled in from the auth_request response
+// (auth-check/route.ts#identityHeaders) and appended to the JSON access log.
+// Declared with a server-level `set` so the log_format is valid even for
+// unauthenticated routes. The API key itself is never logged — only its
+// stored, non-secret prefix.
+//
+// $gw_route_id is NOT reset at server level when any route uses
+// auth_request: the auth subrequest re-runs the server rewrite phase and
+// shares variables with the main request, so a server-level reset would
+// blank the route id just before it's sent to auth-check. The per-route
+// `set $gw_route_id` already declares it in that case. The other variables
+// are only filled in after the subrequest returns, so resetting them is safe.
+const GW_LOG_VARS = ["gw_customer_id", "gw_customer_name", "gw_key_id", "gw_key_prefix", "gw_deny_reason"];
+const GW_LOG_FIELDS =
+  '"gw_customer_id":"$gw_customer_id","gw_customer":"$gw_customer_name","gw_key_id":"$gw_key_id",' +
+  '"gw_key_prefix":"$gw_key_prefix","gw_route_id":"$gw_route_id","gw_deny_reason":"$gw_deny_reason"';
+
 interface GeneratorOptions {
   api: Api;
   routes: ApiRouteWithAuth[];
@@ -152,6 +169,12 @@ export function generateApiGatewayConfig(opts: GeneratorOptions): string {
 
   const lines: string[] = [];
 
+  // log_format is http-level, and every Api's file is included there — one
+  // format name per Api so two Apis never declare the same name.
+  const gwLogFormat = `rproxy_gw_json_${api.id.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  lines.push(`log_format ${gwLogFormat} escape=json '{${JSON_LOG_FIELDS},${GW_LOG_FIELDS}}';`);
+  lines.push(``);
+
   lines.push(`server {`);
 
   if (sslEnabled) {
@@ -166,8 +189,10 @@ export function generateApiGatewayConfig(opts: GeneratorOptions): string {
 
   lines.push(`    access_log /var/log/nginx/${domainToFilename(domain)}.gw.access.log;`);
   lines.push(`    access_log /var/log/nginx/all-access.log;`);
-  lines.push(`    ${JSON_ACCESS_LOG}`);
+  lines.push(`    access_log ${JSON_ACCESS_LOG_PATH} ${gwLogFormat};`);
   lines.push(`    error_log /var/log/nginx/${domainToFilename(domain)}.gw.error.log;`);
+  for (const v of GW_LOG_VARS) lines.push(`    set $${v} "";`);
+  if (!needsAuth) lines.push(`    set $gw_route_id "";`);
   lines.push(``);
 
   if (sslEnabled && certPath && keyPath) {
@@ -276,6 +301,9 @@ export function generateApiGatewayConfig(opts: GeneratorOptions): string {
       lines.push(`        auth_request ${INTERNAL_AUTH_URI};`);
       lines.push(`        auth_request_set $gw_deny_reason $upstream_http_x_gateway_deny_reason;`);
       lines.push(`        auth_request_set $gw_customer_id $upstream_http_x_gateway_customer_id;`);
+      lines.push(`        auth_request_set $gw_customer_name $upstream_http_x_gateway_customer_name;`);
+      lines.push(`        auth_request_set $gw_key_id $upstream_http_x_gateway_key_id;`);
+      lines.push(`        auth_request_set $gw_key_prefix $upstream_http_x_gateway_key_prefix;`);
       // Per-second rate-limit layer only (not daily/monthly quota) — see
       // gateway-auth.service.ts#checkRateAndQuota. Empty when no rateLimit
       // is configured for this customer/route, so the two `if`s below skip

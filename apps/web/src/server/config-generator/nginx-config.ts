@@ -7,7 +7,17 @@ import { staticSiteRoot } from "@/server/static-sites";
 // all-access.log. The rproxy_json log_format is defined in
 // /etc/nginx/conf.d/rproxy-json-log.conf, installed by scripts/setup.sh from
 // scripts/nginx/rproxy-json-log.conf — nginx -t fails without it.
-export const JSON_ACCESS_LOG = "access_log /var/log/nginx/rproxy-json-access.log rproxy_json;";
+export const JSON_ACCESS_LOG_PATH = "/var/log/nginx/rproxy-json-access.log";
+export const JSON_ACCESS_LOG = `access_log ${JSON_ACCESS_LOG_PATH} rproxy_json;`;
+// The rproxy_json fields, kept in step with the conf.d file by a test — the
+// API Gateway's per-Api log_format extends them (api-gateway-config.ts).
+export const JSON_LOG_FIELDS =
+  '"msec":$msec,"host":"$host","method":"$request_method","uri":"$uri",' +
+  '"status":$status,"request_time":$request_time,"body_bytes_sent":$body_bytes_sent,' +
+  '"upstream_addr":"$upstream_addr","upstream_status":"$upstream_status",' +
+  '"upstream_response_time":"$upstream_response_time","remote_addr":"$remote_addr",' +
+  '"x_forwarded_for":"$http_x_forwarded_for","country":"$http_cf_ipcountry",' +
+  '"user_agent":"$http_user_agent","referer":"$rproxy_referer"';
 
 // All values placed into nginx config must pass through these escaping
 // functions. NEVER interpolate user input directly.

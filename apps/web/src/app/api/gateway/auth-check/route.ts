@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
-import { checkAccess } from "@/server/services/api-gateway/gateway-auth.service";
+import { checkAccess, type KeyIdentity } from "@/server/services/api-gateway/gateway-auth.service";
 
 export const dynamic = "force-dynamic";
 
@@ -60,15 +60,28 @@ export async function GET(req: NextRequest) {
   // the conventional X-RateLimit-Limit/X-RateLimit-Remaining — only present
   // when a rateLimit is configured at this layer.
   if (result.ok) {
-    const headers: Record<string, string> = { "X-Gateway-Customer-Id": result.customerId };
+    const headers: Record<string, string> = identityHeaders(result.identity);
     if (result.rateLimit !== undefined) headers["X-Gateway-RateLimit-Limit"] = String(result.rateLimit);
     if (result.rateRemaining !== undefined) headers["X-Gateway-RateLimit-Remaining"] = String(result.rateRemaining);
     return new NextResponse(null, { status: 200, headers });
   }
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = result.identity ? identityHeaders(result.identity) : {};
   if (result.denyReason) headers["X-Gateway-Deny-Reason"] = result.denyReason;
   if (result.rateLimit !== undefined) headers["X-Gateway-RateLimit-Limit"] = String(result.rateLimit);
   if (result.rateRemaining !== undefined) headers["X-Gateway-RateLimit-Remaining"] = String(result.rateRemaining);
   return new NextResponse(null, { status: result.status, headers: Object.keys(headers).length ? headers : undefined });
+}
+
+// Read by nginx's auth_request_set for the gateway access log only — these
+// subrequest response headers never reach the caller. The name is
+// URL-encoded because header values must be ASCII (customer names aren't);
+// the log shipper decodes it.
+function identityHeaders(identity: KeyIdentity): Record<string, string> {
+  return {
+    "X-Gateway-Customer-Id": identity.customerId,
+    "X-Gateway-Customer-Name": encodeURIComponent(identity.customerName),
+    "X-Gateway-Key-Id": identity.keyId,
+    "X-Gateway-Key-Prefix": identity.keyPrefix,
+  };
 }
