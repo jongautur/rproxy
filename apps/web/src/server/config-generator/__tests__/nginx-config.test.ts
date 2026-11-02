@@ -126,6 +126,8 @@ describe("generateNginxConfig — JSON access log", () => {
       const config = generateNginxConfig({ proxy: makeProxy({ accessLog }), certificate: null });
       expect(config).toContain("access_log /var/log/nginx/rproxy-json-access.log rproxy_json;");
       expect(config).toContain("access_log /var/log/nginx/all-access.log;");
+      // "off" would cancel the shared logs on the same level.
+      expect(config).not.toContain("access_log off;");
     }
   });
 });
