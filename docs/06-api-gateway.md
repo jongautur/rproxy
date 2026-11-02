@@ -39,6 +39,19 @@ If Redis is briefly unreachable, customer traffic is allowed through unmetered b
 
 Each API's Analytics tab shows allowed/denied/throttled request counts and quota utilization, refreshed every 5 minutes by a background job (not real-time). **What it can't show**: the gateway's auth check runs *before* the request reaches your backend, so it has no visibility into your backend's actual response status or latency — a request that gets past the gateway and then 500s on your server still counts as "allowed" here.
 
+## Access log: who made each request
+
+Every gateway request is written to `/var/log/nginx/rproxy-json-access.log` (the same JSON log as proxy hosts) with extra fields saying who made it:
+
+| Field | Meaning |
+|---|---|
+| `gw_customer_id`, `gw_customer` | The customer the presented key belongs to (`gw_customer` is the name, URL-encoded) |
+| `gw_key_id`, `gw_key_prefix` | Which key was used: its id and its non-secret display prefix (`rpk_…`). The key itself is never logged. |
+| `gw_route_id` | The matched route (key-protected routes only) |
+| `gw_deny_reason` | `forbidden`, `rate_limited` or `quota_exceeded` when the request was refused |
+
+The identity comes from the auth-check response headers (`X-Gateway-Customer-Id`, `X-Gateway-Customer-Name`, `X-Gateway-Key-Id`, `X-Gateway-Key-Prefix`), captured with `auth_request_set`. Those headers stay inside nginx; callers never see them. Throttled and forbidden requests are attributed too, as long as the key itself was recognised. With no key or an unknown key (401), the fields are empty. Each Api's site file declares its own `rproxy_gw_json_<apiId>` log_format, so it does not depend on any other file.
+
 ## Public developer portal
 
 Optional, per-API: **API Gateway → (select an API) → Docs tab → Documentation settings** — toggle "Enabled" and "Public," pick a slug, and unauthenticated visitors can reach `https://<the Api's domain>/` to see rendered API documentation (endpoints, example requests, a Getting Started section you write). Turning this on serves that page directly at the gateway's own domain root — it will silently do nothing if some `ApiRoute` on that API already claims the root path (an explicit route always wins).

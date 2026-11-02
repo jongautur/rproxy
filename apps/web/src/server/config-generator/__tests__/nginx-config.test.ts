@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { generateNginxConfig, domainToFilename } from "../nginx-config";
+import { readFileSync } from "fs";
+import path from "path";
+import { generateNginxConfig, domainToFilename, JSON_LOG_FIELDS } from "../nginx-config";
 import type { ProxyHost } from "@prisma/client";
 
 function makeProxy(overrides: Partial<ProxyHost> = {}): ProxyHost {
@@ -129,6 +131,15 @@ describe("generateNginxConfig — JSON access log", () => {
       // "off" would cancel the shared logs on the same level.
       expect(config).not.toContain("access_log off;");
     }
+  });
+});
+
+describe("JSON_LOG_FIELDS", () => {
+  it("matches the rproxy_json log_format in scripts/nginx/rproxy-json-log.conf", () => {
+    const conf = readFileSync(path.resolve(__dirname, "../../../../../../scripts/nginx/rproxy-json-log.conf"), "utf-8");
+    const block = conf.slice(conf.indexOf("log_format rproxy_json"), conf.indexOf(";", conf.indexOf("log_format rproxy_json")));
+    const format = [...block.matchAll(/'([^']*)'/g)].map(m => m[1]).join("");
+    expect(format).toBe(`{${JSON_LOG_FIELDS}}`);
   });
 });
 

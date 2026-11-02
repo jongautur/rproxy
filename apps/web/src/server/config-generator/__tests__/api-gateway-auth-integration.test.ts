@@ -73,6 +73,13 @@ describe.skipIf(!nginxAvailable)("API Gateway auth_request — real nginx, end-t
 
   const INTERNAL_SECRET = "test-secret-not-used-in-production";
   const GOOD_KEY = "good-key";
+  // Same shape auth-check/route.ts#identityHeaders sends (name URL-encoded).
+  const IDENTITY = {
+    "X-Gateway-Customer-Id": "cust1",
+    "X-Gateway-Customer-Name": encodeURIComponent("Jón Prófun"),
+    "X-Gateway-Key-Id": "key1",
+    "X-Gateway-Key-Prefix": "rpk_ab12cd34",
+  };
 
   beforeAll(async () => {
     process.env.GATEWAY_AUTH_SECRET = INTERNAL_SECRET;
@@ -92,9 +99,12 @@ describe.skipIf(!nginxAvailable)("API Gateway auth_request — real nginx, end-t
       const key = req.headers["x-api-key"];
       const secret = req.headers["x-gateway-internal-secret"];
       if (secret !== INTERNAL_SECRET) { res.writeHead(401); res.end(); return; }
+      // The real auth-check needs the route id; a blanked one (e.g. by a
+      // server-level `set` re-run in the subrequest) must fail loudly here.
+      if (req.headers["x-gateway-route-id"] !== "gwauthroute1") { res.writeHead(500); res.end(); return; }
       if (!key) { res.writeHead(401); res.end(); return; }
-      if (key === GOOD_KEY) { res.writeHead(200, { "X-Gateway-Customer-Id": "cust1" }); res.end(); return; }
-      if (key === "rate-limited-key") { res.writeHead(403, { "X-Gateway-Deny-Reason": "rate_limited" }); res.end(); return; }
+      if (key === GOOD_KEY) { res.writeHead(200, IDENTITY); res.end(); return; }
+      if (key === "rate-limited-key") { res.writeHead(403, { ...IDENTITY, "X-Gateway-Deny-Reason": "rate_limited" }); res.end(); return; }
       if (key === "quota-key") { res.writeHead(403, { "X-Gateway-Deny-Reason": "quota_exceeded" }); res.end(); return; }
       res.writeHead(403, { "X-Gateway-Deny-Reason": "forbidden" }); res.end();
     });
@@ -226,5 +236,24 @@ describe.skipIf(!nginxAvailable)("API Gateway auth_request — real nginx, end-t
     const res = await httpGet(nginxPort, "/protected", { Host: "gw-auth-it.invalid", "X-Api-Key": GOOD_KEY });
     expect(res.status).toBe(200);
     expect(res.body).toBe("backend reached");
+  });
+
+  it("logs who made each request in the JSON access log, and never the key itself", async () => {
+    // nginx writes the log line after the response; give it a moment.
+    await new Promise(r => setTimeout(r, 300));
+    const lines = readFileSync(path.join(workDir, "rproxy-json-access.log"), "utf-8").trim().split("\n").map(l => JSON.parse(l));
+    const ok = lines.find(l => l.status === 200 && l.uri === "/protected");
+    expect(ok).toMatchObject({
+      gw_customer_id: "cust1", gw_customer: encodeURIComponent("Jón Prófun"),
+      gw_key_id: "key1", gw_key_prefix: "rpk_ab12cd34", gw_deny_reason: "",
+    });
+    expect(ok.gw_route_id).not.toBe("");
+    // A throttled request is still attributed to its customer.
+    expect(lines.find(l => l.status === 429 && l.gw_deny_reason === "rate_limited")).toMatchObject({ gw_customer_id: "cust1" });
+    // No key presented → no identity, but still a log line.
+    expect(lines.find(l => l.status === 401)).toMatchObject({ gw_customer_id: "", gw_key_prefix: "" });
+    const raw = readFileSync(path.join(workDir, "rproxy-json-access.log"), "utf-8");
+    expect(raw).not.toContain(GOOD_KEY);
+    expect(raw).not.toContain("rate-limited-key");
   });
 });
