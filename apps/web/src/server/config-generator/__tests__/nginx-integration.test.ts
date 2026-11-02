@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { execFileSync } from "child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { generateNginxConfig } from "../nginx-config";
@@ -8,6 +8,10 @@ import { generateRedirectConfig } from "../redirect-config";
 import { generateApiGatewayConfig } from "../api-gateway-config";
 import type { ProxyHost, RedirectHost, Api } from "@prisma/client";
 import type { ApiRouteWithAuth } from "../api-gateway-config";
+
+// The conf.d snippet setup.sh installs on real hosts — defines the
+// rproxy_json log_format every generated server block references.
+const JSON_LOG_CONF = readFileSync(path.resolve(__dirname, "../../../../../../scripts/nginx/rproxy-json-log.conf"), "utf-8");
 
 // This is the "does the generator actually produce syntactically valid
 // nginx config" check called for in the repo review — it shells out to a
@@ -53,7 +57,7 @@ function runNginxT(body: string): { code: number; output: string } {
   // particular local user can write to production log paths — redirect the
   // generators' hardcoded /var/log/nginx/* log lines into this temp dir,
   // and give it a pid path in the same place.
-  const withWritablePaths = body
+  const withWritablePaths = `${JSON_LOG_CONF}\n${body}`
     .replace(/\/var\/log\/nginx\//g, `${dir}/`)
     // `nginx -t` doesn't just parse syntax — it also opens (binds) every
     // declared listen socket to catch real startup failures, the same way

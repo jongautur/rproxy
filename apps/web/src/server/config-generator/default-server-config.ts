@@ -1,5 +1,5 @@
 import path from "path";
-import { PAGES_DIR } from "./nginx-config";
+import { PAGES_DIR, JSON_ACCESS_LOG } from "./nginx-config";
 import { sanitizeNginxValue } from "@/lib/validation";
 
 export type DefaultPageMode = "nginx_default" | "redirect" | "custom_html" | "no_response";
@@ -85,6 +85,7 @@ export function generateDefaultServerConfig(opts: {
   lines.push(``);
   lines.push(`    access_log off;`);
   lines.push(`    access_log /var/log/nginx/all-access.log;`);
+  lines.push(`    ${JSON_ACCESS_LOG}`);
   lines.push(``);
   lines.push(`    location /.well-known/acme-challenge/ {`);
   lines.push(`        root /var/www/html;`);
@@ -104,6 +105,8 @@ export function generateDefaultServerConfig(opts: {
     lines.push(``);
     lines.push(`    access_log off;`);
     lines.push(`    access_log /var/log/nginx/all-access.log;`);
+    lines.push(`    ${JSON_ACCESS_LOG}`);
+  lines.push(`    ${JSON_ACCESS_LOG}`);
     lines.push(`    ssl_certificate ${DEFAULT_CERT_FILE};`);
     lines.push(`    ssl_certificate_key ${DEFAULT_KEY_FILE};`);
     lines.push(``);

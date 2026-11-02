@@ -176,7 +176,9 @@ describe.skipIf(!nginxAvailable)("API Gateway auth_request — real nginx, end-t
     // unprivileged process can actually start nginx (not just -t it) — the
     // listen ports here are already high/unprivileged, so no port remap
     // is needed this time.
-    config = config.replace(/\/var\/log\/nginx\//g, `${workDir}/`);
+    // Prepend the conf.d snippet that defines the rproxy_json log_format.
+    const jsonLogConf = readFileSync(path.resolve(__dirname, "../../../../../../scripts/nginx/rproxy-json-log.conf"), "utf-8");
+    config = `${jsonLogConf}\n${config}`.replace(/\/var\/log\/nginx\//g, `${workDir}/`);
 
     const confPath = path.join(workDir, "nginx.conf");
     const full = `pid ${pidPath};\nevents {}\nhttp {\naccess_log ${workDir}/default-access.log;\nerror_log ${workDir}/default-error.log;\n${config}\n}\n`;

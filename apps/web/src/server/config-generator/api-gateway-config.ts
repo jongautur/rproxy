@@ -6,7 +6,7 @@ import type { Api, ApiRoute, Certificate } from "@prisma/client";
 // upstreamAuthType is NONE, or decryption failed for this route.
 export type ApiRouteWithAuth = ApiRoute & { upstreamAuthValue: string | null };
 import { isValidDomain, isValidPort, sanitizeNginxValue, getAppPort } from "@/lib/validation";
-import { domainToFilename } from "@/server/config-generator/nginx-config";
+import { domainToFilename, JSON_ACCESS_LOG } from "@/server/config-generator/nginx-config";
 import { zoneNameForRoute, zoneNameForDocs, DEFAULT_BURST } from "@/server/config-generator/api-gateway-zones-config";
 import path from "path";
 
@@ -166,6 +166,7 @@ export function generateApiGatewayConfig(opts: GeneratorOptions): string {
 
   lines.push(`    access_log /var/log/nginx/${domainToFilename(domain)}.gw.access.log;`);
   lines.push(`    access_log /var/log/nginx/all-access.log;`);
+  lines.push(`    ${JSON_ACCESS_LOG}`);
   lines.push(`    error_log /var/log/nginx/${domainToFilename(domain)}.gw.error.log;`);
   lines.push(``);
 
