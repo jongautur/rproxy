@@ -27,6 +27,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { NotificationsTab } from "./notifications-tab";
+import { LocalDnsTab } from "./local-dns-tab";
 import { CloudflareTab } from "./cloudflare-tab";
 import { McpTab } from "./mcp-tab";
 import { TotpCard } from "./totp-card";
@@ -436,6 +437,7 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
             <Globe className="w-4 h-4" />
             Nginx
           </TabsTrigger>
+          <TabsTrigger value="local-dns" className="gap-2"><Network className="w-4 h-4" />Local DNS</TabsTrigger>
           <TabsTrigger value="cloudflare" className="gap-2">
             <CloudCog className="w-4 h-4" />
             Cloudflare
@@ -648,6 +650,7 @@ export function SettingsClient({ currentUserId }: { currentUserId: string }) {
           <NotificationsTab />
         </TabsContent>
 
+        <TabsContent value="local-dns"><LocalDnsTab /></TabsContent>
         <TabsContent value="cloudflare">
           <CloudflareTab />
         </TabsContent>

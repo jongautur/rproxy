@@ -32,7 +32,7 @@ export async function GET() {
           autoRenew: true, dnsProvider: true,
         },
       }),
-      prisma.setting.findMany({ orderBy: { key: "asc" } }),
+      prisma.setting.findMany({ where: { key: { not: "local_dns_integration" } }, orderBy: { key: "asc" } }),
     ]);
 
     const payload = JSON.stringify({

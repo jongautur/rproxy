@@ -57,3 +57,26 @@ Runs every 5 minutes: checks the server's current public IP, and if it changed s
 **Worth knowing**: it only fixes records that were already in sync with the old IP. If a record was manually pointed somewhere else, or never matched what rproxy last recorded, DDNS silently leaves it alone rather than "correcting" it back — this is a deliberate scoping choice, not a bug, but it means DDNS won't rescue a record that's drifted for other reasons.
 
 IPv4 (A records) only — no IPv6/AAAA support.
+
+## Optional local DNS (Technitium)
+
+Settings → Local DNS can create LAN A records alongside Cloudflare's public
+records. Enter the Technitium web/API URL (for example `https://dns.sleik.is`,
+or `http://192.168.1.2:5380`), an API token, and **rproxy's LAN IPv4 address**.
+Enable automatic local DNS and save. The token is encrypted at rest and is never
+returned by the settings API. Saving tests authentication; actual writes also
+require permission to modify the relevant zone's records.
+
+Create the matching authoritative zones in Technitium before adding hosts.
+New proxy hosts (including static hosts) and renamed proxy hosts receive an A
+record in the closest existing authoritative zone. Each write replaces that
+hostname's A record set with the configured LAN IP and a 300-second TTL.
+Cloudflare automation remains independently configurable.
+
+Use **Sync existing hosts** after saving to populate existing hosts, apply a new
+LAN IP, or retry failed writes. Failures during host creation are shown without
+blocking the proxy. Deleting or renaming hosts leaves the old local records for
+manual cleanup. Disconnect removes the saved integration without deleting DNS.
+Clients must use Technitium as their resolver to receive the local answers.
+
+API reference: [Technitium DNS Server HTTP API](https://github.com/TechnitiumSoftware/DnsServer/blob/master/APIDOCS.md).

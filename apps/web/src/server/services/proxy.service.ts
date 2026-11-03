@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { generateNginxConfig, domainToFilename } from "@/server/config-generator/nginx-config";
 import { deploySiteConfig, removeSiteConfig, setSiteEnabled, type DeployResult } from "@/server/services/nginx-deploy.service";
 import { getIntegration, resolveZoneForDomain, upsertARecord, getPublicIp, deleteARecord, setRecordProxied, listZones, matchZoneForDomain, findARecord } from "@/server/services/cloudflare.service";
+import { createLocalDnsRecord } from "@/server/services/local-dns.service";
 import type { ProxyHostFormData } from "@/types/proxy";
 import type { ProxyHost } from "@prisma/client";
 
@@ -119,7 +120,7 @@ async function redeployProxyUnlocked(id: string): Promise<void> {
 export async function createProxy(
   data: ProxyHostFormData,
   userId: string
-): Promise<{ proxy: ProxyHost; deploy: DeployResult; dnsRecord?: DnsRecordResult }> {
+): Promise<{ proxy: ProxyHost; deploy: DeployResult; dnsRecord?: DnsRecordResult; localDnsRecord?: DnsRecordResult }> {
   const proxy = await prisma.proxyHost.create({
     data: {
       domain: data.domain,
@@ -148,6 +149,7 @@ export async function createProxy(
   });
 
   const deploy = await deployConfig(proxy);
+  const localDnsRecord = await createLocalDnsRecord(proxy.domain);
   const dnsRecord = await autoCreateDnsRecord(proxy);
 
   await prisma.proxyHost.update({
@@ -165,14 +167,14 @@ export async function createProxy(
     },
   });
 
-  return { proxy, deploy, dnsRecord };
+  return { proxy, deploy, dnsRecord, localDnsRecord };
 }
 
 async function updateProxyUnlocked(
   id: string,
   data: Partial<ProxyHostFormData>,
   userId: string
-): Promise<{ proxy: ProxyHost; deploy: DeployResult }> {
+): Promise<{ proxy: ProxyHost; deploy: DeployResult; localDnsRecord?: DnsRecordResult }> {
   const existing = await prisma.proxyHost.findUniqueOrThrow({ where: { id } });
 
   const updated = await prisma.proxyHost.update({
@@ -184,6 +186,7 @@ async function updateProxyUnlocked(
   });
 
   const deploy = await deployConfig(updated);
+  const localDnsRecord = existing.domain !== updated.domain ? await createLocalDnsRecord(updated.domain) : undefined;
 
   await prisma.proxyHost.update({
     where: { id },
@@ -199,7 +202,7 @@ async function updateProxyUnlocked(
     },
   });
 
-  return { proxy: updated, deploy };
+  return { proxy: updated, deploy, localDnsRecord };
 }
 
 async function deleteProxyUnlocked(id: string, userId: string): Promise<DeployResult> {
@@ -237,7 +240,7 @@ async function toggleProxyUnlocked(
   id: string,
   enabled: boolean,
   userId: string
-): Promise<{ proxy: ProxyHost; deploy: DeployResult }> {
+): Promise<{ proxy: ProxyHost; deploy: DeployResult; localDnsRecord?: DnsRecordResult }> {
   const proxy = await prisma.proxyHost.update({
     where: { id },
     data: { enabled },

@@ -399,7 +399,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
 
       const json = await res.json() as {
         success: boolean;
-        data?: { proxy: { id: string }; nginxTest: NginxTestResult; dnsRecord?: { created: boolean; error?: string } };
+        data?: { proxy: { id: string }; nginxTest: NginxTestResult; dnsRecord?: { created: boolean; error?: string }; localDnsRecord?: { created: boolean; error?: string } };
         error?: string;
         details?: Record<string, string[]>;
       };
@@ -443,6 +443,9 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSaved }: Props) {
       }
       toast({ title: isEdit ? "Proxy updated" : "Proxy created", description: form.domain });
 
+      if (json.data?.localDnsRecord && !json.data.localDnsRecord.created) {
+        toast({ variant: "destructive", title: "Local DNS update failed", description: json.data.localDnsRecord.error });
+      }
       if (json.data?.dnsRecord && !json.data.dnsRecord.created) {
         toast({
           variant: "destructive",

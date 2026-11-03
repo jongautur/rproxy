@@ -52,8 +52,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     );
     if (backupError) return badRequest(backupError);
 
-    const { proxy: updated, deploy } = await updateProxy(id, parsed.data, session.id);
-    return ok({ proxy: updated, nginxTest: deploy });
+    const { proxy: updated, deploy, localDnsRecord } = await updateProxy(id, parsed.data, session.id);
+    return ok({ proxy: updated, nginxTest: deploy, localDnsRecord });
   } catch (e) {
     return fromError(e);
   }

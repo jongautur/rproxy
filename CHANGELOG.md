@@ -10,6 +10,8 @@ All notable changes to rproxy are documented here.
 
 - **API Gateway requests in the JSON access log carry the caller's identity**: `gw_customer_id`, `gw_customer` (name), `gw_key_id`, `gw_key_prefix` (never the key), `gw_route_id` and `gw_deny_reason`, captured from auth-check response headers. See [docs/06-api-gateway.md](docs/06-api-gateway.md).
 
+- **Local DNS (Technitium)**: Settings → Local DNS can create LAN A records for proxy hosts alongside Cloudflare's public records, on create, on rename and via "Sync existing hosts". The API token is encrypted at rest and never returned by the settings or export APIs. See [docs/08-notifications-cloudflare-ddns.md](docs/08-notifications-cloudflare-ddns.md).
+
 ### Fixed
 - Hosts with per-domain access logging turned off logged **nothing**, not even to the shared `all-access.log` (and the Logs page / traffic stats never saw them), and the default server never logged either. The generator emitted `access_log off;` next to the shared `access_log` lines, and in nginx `off` cancels every `access_log` on the same level. It now simply omits the per-domain line.
 

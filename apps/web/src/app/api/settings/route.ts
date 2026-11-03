@@ -81,7 +81,7 @@ export async function GET() {
         select: { id: true, username: true, email: true, role: true, createdAt: true },
         orderBy: { createdAt: "asc" },
       }),
-      prisma.setting.findMany({ orderBy: { key: "asc" } }),
+      prisma.setting.findMany({ where: { key: { not: "local_dns_integration" } }, orderBy: { key: "asc" } }),
     ]);
 
     return ok({ users, settings });
